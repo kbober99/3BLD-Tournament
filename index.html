@@ -416,29 +416,31 @@ function startRoundGeneric(rNum, players, advCount, targetId){
   if(subEl) subEl.textContent =
     `${players.length} zawodników · 5 ułożeń · ${advCount>0 ? 'awansuje '+advCount+' najlepszych' : 'klasyfikacja końcowa'}`;
 
-  // Pre-simulate ALL 5 attempts for every CPU player now
-  // Each attempt gets a completedAt timestamp = cumulative solve time
-  // DNF attempts use player's mean time as duration estimate
+  // Pre-simulate ALL 5 attempts for every CPU player
   const cpuAttempts = {};
+  const cpuIds = [];
   players.forEach(id => {
     if(id === 'you') return;
     const p = PLAYERS_DB[id];
     if(!p){ console.warn('[R'+rNum+'] Missing player:', id); return; }
     const result = simulateRound(p);
-    var cumulative = 0;
-    result.attempts.forEach(function(att) {
-      // DNF still takes ~mean time; solved takes actual time
-      var duration = att.dnf ? p.mean : att.time;
-      cumulative += duration;
-      att.completedAt = cumulative;
-    });
     cpuAttempts[id] = { attempts: result.attempts, revealed: 0 };
+    cpuIds.push(id);
   });
-  console.log('[R'+rNum+'] cpuAttempts built for '+Object.keys(cpuAttempts).length+' players');
+  console.log('[R'+rNum+'] cpuAttempts built for '+cpuIds.length+' players');
 
+  // For each of 5 attempts, shuffle cpuIds and pick a random split point K
+  // K CPUs go before human, rest go after
   const scrambles = Array.from({length:5}, () => generateScramble(20));
+  const attemptOrders = Array.from({length:5}, function() {
+    var shuffled = cpuIds.slice().sort(function(){ return Math.random()-0.5; });
+    var k = Math.floor(Math.random() * (cpuIds.length + 1));
+    return { before: shuffled.slice(0, k), after: shuffled.slice(k) };
+  });
 
-  S._cur = { rNum, players, cpuAttempts, scrambles, humanAttempts: [], advCount, targetId, finalized: false };
+  S._cur = { rNum, players, cpuAttempts, cpuIds, scrambles, attemptOrders,
+             humanAttempts: [], advCount, targetId, finalized: false,
+             animating: false };
 
   const el = document.getElementById(targetId);
   const hasHuman = players.includes('you');
@@ -514,59 +516,89 @@ function renderHumanPanel(){
   if(inp){ inp.focus(); inp.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); submitHumanCur(); } }, {once:false, passive:false}); }
 }
 
-function submitHumanCur(){
-  const cur = S._cur;
+// ── ANIMATED ATTEMPT SEQUENCE ──────────────────────────────
+// startAttemptSequence(attIdx): reveal "before" CPUs one-by-one, then show human input
+// submitHumanCur: record human result, reveal "after" CPUs one-by-one, then next attempt
+
+function startAttemptSequence(attIdx){
+  var cur = S._cur;
   if(!cur || cur.finalized) return;
-  const inp2 = document.getElementById('human-time-cur');
-  if(inp2) inp2.blur(); // prevent Enter re-fire
-  const val = (inp2?.value || '').trim();
+  cur.currentAttIdx = attIdx;
+  cur.animating = true;
+
+  // Update scramble display
+  var snEl = document.getElementById('cur-scramble-num');
+  if(snEl) snEl.textContent = '#'+(attIdx+1)+'/5';
+  var stEl = document.getElementById('cur-scramble-text');
+  if(stEl) stEl.textContent = cur.scrambles[attIdx];
+
+  // Hide human panel while "before" CPUs are resolving
+  var panel = document.getElementById('cur-human-panel');
+  if(panel) panel.innerHTML = '<div style="padding:16px;color:var(--text3);font-family:Space Mono,monospace;font-size:12px;text-align:center">⏳ układają...</div>';
+
+  var order = cur.attemptOrders[attIdx];
+  revealSequentially(order.before, attIdx, 0, function(){
+    // All "before" CPUs revealed — now show human input
+    cur.animating = false;
+    renderHumanPanel();
+    renderLiveTable();
+  });
+}
+
+function revealSequentially(ids, attIdx, i, onDone){
+  var cur = S._cur;
+  if(!cur || i >= ids.length){ onDone(); return; }
+  var id = ids[i];
+  var ca = cur.cpuAttempts[id];
+  if(ca && ca.revealed <= attIdx) ca.revealed = attIdx + 1;
+  renderLiveTable();
+  // Fixed 30ms per result regardless of attempt time or round size
+  setTimeout(function(){ revealSequentially(ids, attIdx, i+1, onDone); }, 30);
+}
+
+function submitHumanCur(){
+  var cur = S._cur;
+  if(!cur || cur.finalized || cur.animating) return;
+  var inp2 = document.getElementById('human-time-cur');
+  if(inp2) inp2.blur();
+  var val = (inp2 ? inp2.value : '').trim();
   if(!val) return;
-  const att = cur.humanAttempts.length;
+  var att = cur.humanAttempts.length;
   if(att >= 5) return;
 
   if(val.toLowerCase() === 'dnf'){
     cur.humanAttempts.push({time:null, dnf:true, scramble:cur.scrambles[att]});
   } else {
-    const t = parseFloat(val);
+    var t = parseFloat(val);
     if(isNaN(t) || t <= 0){ alert('Podaj czas w sekundach lub "dnf"'); return; }
     cur.humanAttempts.push({time:t, dnf:false, scramble:cur.scrambles[att]});
   }
 
-  // Compute human's cumulative time after this attempt
-  // DNF counts as player's mean (unknown — use a rough estimate of 120s for human DNF)
-  var humanCumulative = cur.humanAttempts.reduce(function(sum, a) {
-    return sum + (a.dnf || !a.time ? 120 : a.time);
-  }, 0);
-  // Reveal all CPU attempts completed within human's elapsed time
-  Object.values(cur.cpuAttempts).forEach(function(ca) {
-    var newRevealed = 0;
-    for(var i = 0; i < ca.attempts.length; i++) {
-      if(ca.attempts[i].completedAt <= humanCumulative) newRevealed = i+1;
-      else break;
-    }
-    ca.revealed = newRevealed;
-  });
-  var revealTo = cur.humanAttempts.length;
-  console.log('[R'+cur.rNum+'] submit #'+revealTo+': humanCumulative='+humanCumulative.toFixed(1)+'s, cpuKeys='+Object.keys(cur.cpuAttempts).length);
+  // Disable input while "after" CPUs resolve
+  var panel = document.getElementById('cur-human-panel');
+  if(panel) panel.innerHTML = '<div style="padding:16px;color:var(--text3);font-family:Space Mono,monospace;font-size:12px;text-align:center">⏳ układają...</div>';
+  cur.animating = true;
+  renderLiveTable();
 
-  if(cur.humanAttempts.length >= 5){
-    // Finalize
-    cur.finalized = true;
-    Object.values(cur.cpuAttempts).forEach(ca => { ca.revealed = 5; });
-    const sorted = buildSorted();
-    S.rounds[cur.rNum-1] = sorted;
-    if(cur.rNum===1){ const adv=Math.min(S.advanceTo2,sorted.filter(r=>!r.dnf).length); S.r2players=sorted.slice(0,adv).map(r=>r.id); console.log('[R1] finalized, r2players='+S.r2players.length+': '+JSON.stringify(S.r2players.slice(0,3))); }
-    if(cur.rNum===2){ const adv=Math.min(S.advanceTo3,sorted.filter(r=>!r.dnf).length); S.r3players=sorted.slice(0,adv).map(r=>r.id); console.log('[R2] finalized, r3players='+S.r3players.length+': '+JSON.stringify(S.r3players)); }
-    // Replace layout with full-width table
-    var elFin = document.getElementById(cur.targetId);
-    if(elFin){
-      elFin.innerHTML = '<div id="cur-live-table"></div>';
+  var order = cur.attemptOrders[att];
+  revealSequentially(order.after, att, 0, function(){
+    cur.animating = false;
+    var nextAtt = cur.humanAttempts.length;
+    if(nextAtt >= 5){
+      // Finalize — reveal any still-hidden attempts
+      cur.finalized = true;
+      Object.values(cur.cpuAttempts).forEach(function(ca){ ca.revealed = 5; });
+      var sorted = buildSorted();
+      S.rounds[cur.rNum-1] = sorted;
+      if(cur.rNum===1){ var adv1=Math.min(S.advanceTo2,sorted.filter(function(r){return !r.dnf;}).length); S.r2players=sorted.slice(0,adv1).map(function(r){return r.id;}); }
+      if(cur.rNum===2){ var adv2=Math.min(S.advanceTo3,sorted.filter(function(r){return !r.dnf;}).length); S.r3players=sorted.slice(0,adv2).map(function(r){return r.id;}); }
+      var elFin = document.getElementById(cur.targetId);
+      if(elFin) elFin.innerHTML = '<div id="cur-live-table"></div>';
+      renderLiveTable();
+    } else {
+      startAttemptSequence(nextAtt);
     }
-    renderLiveTable();
-  } else {
-    renderHumanPanel();
-    renderLiveTable();
-  }
+  });
 }
 
 function getPlayerResult(cur, id){
