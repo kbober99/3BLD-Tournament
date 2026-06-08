@@ -263,7 +263,7 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0;}
 
   <div class="card">
     <div class="card-title">Format meczu per etap</div>
-    <div class="info-box">N setów = best-of-N (wygrywa kto zdobędzie ⌈N/2⌉ setów). M pkt = best-of-M (set wygrywa kto zdobędzie ⌈M/2⌉ pkt).</div>
+    <div class="info-box">Sety: liczba setów do wygrania meczu (race-to N). Pkt: liczba punktów do wygrania seta (race-to M). Np. sety=3 → kto pierwszy wygra 3 sety; pkt=5 → kto pierwszy zdobędzie 5 pkt.</div>
     <div id="stage-format-table"></div>
   </div>
 
@@ -283,6 +283,7 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0;}
   <div id="tour-content"></div>
   <div class="right" style="margin-top:12px">
     <button class="btn btn-secondary" onclick="goStep(2)">← Wstecz</button>
+    <button class="btn btn-secondary" id="sim-cpu-btn" onclick="simulateAllCpu()" title="Symuluje wszystkie mecze CPU w aktualnym etapie">⚡ Symuluj CPU</button>
     <button class="btn btn-primary" id="next-match-btn">▶ Zagraj mecz</button>
   </div>
 </div>
@@ -376,6 +377,95 @@ function simulateBot(player, scramble){
   const diffMult=1+(diff-0.5)*dw;
   const t=(base+bw*z)*Math.max(0.6,Math.min(1.6,diffMult));
   return{time:+Math.max(5,t).toFixed(2),dnf:false};
+}
+
+
+// Simulate a complete CPU-vs-CPU match synchronously (no UI)
+function simulateMatchSync(pA, pB, fmt, stage){
+  const setsToWin=fmt.sets, ptsToWin=fmt.pts;
+  const isGrp=stage==='groups';
+  let setScoreA=0, setScoreB=0;
+  const sets=[];
+  const statsA={solves:0,times:[],dnfs:0};
+  const statsB={solves:0,times:[],dnfs:0};
+
+  while(true){
+    let ptA=0,ptB=0;
+    const attempts=[];
+    while(true){
+      const sc=generateScramble(20);
+      const rA=simulateBot(playerById(pA),sc);
+      const rB=simulateBot(playerById(pB),sc);
+      statsA.solves++; if(rA.dnf) statsA.dnfs++; else if(rA.time) statsA.times.push(rA.time);
+      statsB.solves++; if(rB.dnf) statsB.dnfs++; else if(rB.time) statsB.times.push(rB.time);
+      attempts.push({scramble:sc,timeA:rA.time,timeB:rB.time,dnfA:rA.dnf,dnfB:rB.dnf});
+      const tA=rA.time,tB=rB.time,dnfA=rA.dnf,dnfB=rB.dnf;
+      if(tA&&!dnfA&&(dnfB||!tB||tA<tB)) ptA++;
+      else if(tB&&!dnfB&&(dnfA||!tA||tB<tA)) ptB++;
+      if(ptA>=ptsToWin){setScoreA++;sets.push({ptA,ptB,winner:pA,attempts});break;}
+      if(ptB>=ptsToWin){setScoreB++;sets.push({ptA,ptB,winner:pB,attempts});break;}
+    }
+    if(setScoreA>=setsToWin) return{winner:pA,isDraw:false,sA:setScoreA,sB:setScoreB,sets,statsA,statsB};
+    if(setScoreB>=setsToWin) return{winner:pB,isDraw:false,sA:setScoreA,sB:setScoreB,sets,statsA,statsB};
+  }
+}
+
+// Get all CPU-vs-CPU matches in the current round/phase
+function getCurrentPhaseCpuMatches(){
+  const t=S.tournament;
+  const matches=[];
+  if(t.type==='elimination'){
+    // current round = first round with unplayed matches
+    for(const round of t.rounds){
+      const pending=round.filter(m=>!m.winner&&!m.isDraw&&m.a&&m.b&&m.a!=='bye'&&m.b!=='bye');
+      if(pending.length){
+        pending.forEach(m=>{ if(m.a!=='you'&&m.b!=='you') matches.push(m); });
+        break;
+      }
+    }
+  } else if(t.type==='groups_elimination'){
+    if(t.phase==='groups'){
+      t.groups.forEach(g=>g.matches.forEach(m=>{
+        if(!m.winner&&!m.isDraw&&m.a&&m.b&&m.a!=='you'&&m.b!=='you') matches.push(m);
+      }));
+    } else if(t.phase==='elimination'&&t.elimination){
+      for(const round of t.elimination.rounds){
+        const pending=round.filter(m=>!m.winner&&!m.isDraw&&m.a&&m.b&&m.a!=='bye'&&m.b!=='bye');
+        if(pending.length){
+          pending.forEach(m=>{ if(m.a!=='you'&&m.b!=='you') matches.push(m); });
+          break;
+        }
+      }
+    }
+  } else if(t.type==='round_robin'){
+    t.matches.forEach(m=>{
+      if(!m.winner&&!m.isDraw&&m.a&&m.b&&m.a!=='you'&&m.b!=='you') matches.push(m);
+    });
+  }
+  return matches;
+}
+
+function simulateAllCpu(){
+  const t=S.tournament;
+  const cpuMatches=getCurrentPhaseCpuMatches();
+  if(!cpuMatches.length){ alert('Brak meczów CPU do symulacji w tym etapie.'); return; }
+  cpuMatches.forEach(m=>{
+    const stage=getMatchStage(m);
+    const fmt=stageFmt(stage);
+    const res=simulateMatchSync(m.a,m.b,fmt,stage);
+    m.winner=res.winner; m.isDraw=res.isDraw; m.sA=res.sA; m.sB=res.sB;
+    // record stats
+    [[m.a,res.statsA],[m.b,res.statsB]].forEach(([pid,st])=>{
+      if(!S.stats[pid]) S.stats[pid]={solves:0,times:[],dnfs:0};
+      S.stats[pid].solves+=st.solves; S.stats[pid].dnfs+=st.dnfs;
+      S.stats[pid].times.push(...st.times);
+    });
+    if(!m.isDraw){
+      const bracket=t.type==='groups_elimination'&&t.phase==='elimination'?t.elimination:t;
+      if(bracket&&bracket.rounds) advanceB(bracket,m);
+    }
+  });
+  renderTournament();
 }
 
 // ============================================================
@@ -496,7 +586,7 @@ function updateFormatUI(){
   S._activeStages=stages;
   const isGroup = stages.includes('groups');
   document.getElementById('stage-format-table').innerHTML=
-    `<div class="fmt-row" style="padding-bottom:4px"><div class="text-xs">ETAP</div><div class="text-xs">SETY (N)</div><div class="text-xs">PKT W SECIE (M)</div></div>`+
+    `<div class="fmt-row" style="padding-bottom:4px"><div class="text-xs">ETAP</div><div class="text-xs">SETY — race to</div><div class="text-xs">PKT w secie — race to</div></div>`+
     stages.map(s=>{
       const isGrp=s==='groups';
       const sStep=isGrp?1:2;
@@ -514,8 +604,8 @@ function updateFormatUI(){
       }
       return`<div class="fmt-row" style="flex-wrap:wrap">
         <label>${STAGE_LABELS[s]}</label>
-        <input type="number" id="fs-s-${s}" value="${sVal}" min="${sMin}" max="20" step="${sStep}" style="width:70px">
-        <input type="number" id="fs-p-${s}" value="${pVal}" min="1" max="21" step="2" style="width:70px">
+        <input type="number" id="fs-s-${s}" value="${sVal}" min="${sMin}" max="20" step="1" style="width:70px">
+        <input type="number" id="fs-p-${s}" value="${pVal}" min="1" max="50" step="1" style="width:70px">
       </div>${extra}`;
     }).join('');
 }
@@ -525,7 +615,7 @@ function readFormat(){
   S.format.numGroups=+document.getElementById('fmt-num-groups').value||2;
   S.format.advance=+document.getElementById('fmt-advance').value||2;
   S._activeStages.forEach(s=>{
-    S.format.stages[s]={sets:+document.getElementById('fs-s-'+s).value||3,pts:+document.getElementById('fs-p-'+s).value||5};
+    S.format.stages[s]={sets:+document.getElementById('fs-s-'+s).value||3,pts:+document.getElementById('fs-p-'+s).value||5,raceTo:true};
   });
   if(document.getElementById('gp-win')){
     S.format.groupPoints={
@@ -537,11 +627,7 @@ function readFormat(){
 }
 function stageFmt(stage){return S.format.stages[stage]||{sets:3,pts:5};}
 function isGroupStage(stage){return stage==='groups';}
-function matchSetsToWin(fmt,stage){
-  // group stage: even sets allowed → win = majority, draw possible
-  if(isGroupStage(stage)) return Math.ceil(fmt.sets/2); // majority still, but sets can be equal
-  return Math.ceil(fmt.sets/2);
-}
+function matchSetsToWin(fmt,stage){ return fmt.sets; }
 
 // ============================================================
 // STEP 3 — TOURNAMENT
@@ -773,6 +859,13 @@ function updateNextBtn(){
   const btn=document.getElementById('next-match-btn');
   if(!nm){btn.textContent='🏆 Wyniki';btn.onclick=finalizeTournament;}
   else{btn.textContent=`▶ ${pName(nm.a)} vs ${pName(nm.b)}`;btn.onclick=startCurrentMatch;}
+  // show/hide cpu sim button
+  const cpuBtn=document.getElementById('sim-cpu-btn');
+  if(cpuBtn){
+    const cpuMatches=nm?getCurrentPhaseCpuMatches():[];
+    cpuBtn.style.display=cpuMatches.length?'':'none';
+    if(cpuMatches.length) cpuBtn.textContent=`⚡ Symuluj CPU (${cpuMatches.length})`;
+  }
 }
 
 function startCurrentMatch(){
@@ -791,12 +884,13 @@ function startMatch(pA,pB,fmt,stage){
   const isGrp=stage==='groups';
   S.matchState={
     pA,pB,
-    setsToWin:Math.ceil(fmt.sets/2),ptsToWin:Math.ceil(fmt.pts/2),
-    maxSets:fmt.sets,maxPts:fmt.pts,
+    setsToWin:fmt.sets,ptsToWin:fmt.pts,
+    maxSets:fmt.sets*2-1,maxPts:fmt.pts*2-1,
     setScoreA:0,setScoreB:0,
     sets:[],currentSet:{ptA:0,ptB:0,attempts:[]},
     done:false,winner:null,isDraw:false,
     isGroupStage:isGrp,
+    server:pA, // who "serves" this attempt (alternates each attempt)
     humanPendingResolve:null,
     viewingSet:-1,
   };
@@ -824,38 +918,41 @@ function renderMatchFull(){
   }).join('');
 
   const html=`
-    <h2 class="sh" style="margin-bottom:10px">Mecz: ${pA.name} vs ${pB.name}</h2>
+    <h2 class="sh" style="margin-bottom:10px">Mecz: ${pDisplayName(ms.pA)} vs ${pDisplayName(ms.pB)}</h2>
     <div class="match-layout">
       <div>
         <!-- SCOREBOARD -->
         <div class="scoreboard">
           <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
             <div>
-              <div style="font-weight:600;font-size:14px;color:${pA.color}">${pA.name}</div>
+              <div style="font-weight:600;font-size:14px;color:${pA.color}">${pDisplayName(ms.pA)}</div>
               <div class="text-xs">${ms.pA==='you'?'👤 Ty':'BOT · μ='+pA.mean.toFixed(0)+'s'}</div>
+              <div class="text-xs" style="color:var(--text3)">${ms.pA!=='you'?ms.pA:''}</div>
             </div>
             <div style="text-align:center">
               <div class="text-xs mb-8">SETY</div>
               <div style="display:flex;align-items:center;gap:10px">
-                <div class="sb-set-score" style="color:${pA.color}">${ms.setScoreA}</div>
+                <div id="live-sA" class="sb-set-score" style="color:${pA.color}">${ms.setScoreA}</div>
                 <div style="color:var(--text3);font-family:'Space Mono',monospace;font-size:20px">:</div>
-                <div class="sb-set-score" style="color:${pB.color}">${ms.setScoreB}</div>
+                <div id="live-sB" class="sb-set-score" style="color:${pB.color}">${ms.setScoreB}</div>
               </div>
               <div class="sb-set-indicators">${dots}</div>
             </div>
             <div style="text-align:right">
-              <div style="font-weight:600;font-size:14px;color:${pB.color}">${pB.name}</div>
+              <div style="font-weight:600;font-size:14px;color:${pB.color}">${pDisplayName(ms.pB)}</div>
               <div class="text-xs">${ms.pB==='you'?'👤 Ty':'BOT · μ='+pB.mean.toFixed(0)+'s'}</div>
+              <div class="text-xs" style="color:var(--text3)">${ms.pB!=='you'?ms.pB:''}</div>
             </div>
           </div>
           ${!ms.done?`<div style="text-align:center;padding-top:6px;border-top:1px solid var(--border)">
             <div class="text-xs" style="margin-bottom:3px">PUNKTY W SECIE</div>
             <div style="display:flex;justify-content:center;align-items:center;gap:8px">
-              <span style="color:${pA.color};font-size:20px;font-weight:700;font-family:'Space Mono',monospace">${ms.currentSet.ptA}</span>
+              <span id="live-ptA" style="color:${pA.color};font-size:20px;font-weight:700;font-family:'Space Mono',monospace">${ms.currentSet.ptA}</span>
               <span style="color:var(--text3);font-family:'Space Mono',monospace">:</span>
-              <span style="color:${pB.color};font-size:20px;font-weight:700;font-family:'Space Mono',monospace">${ms.currentSet.ptB}</span>
+              <span id="live-ptB" style="color:${pB.color};font-size:20px;font-weight:700;font-family:'Space Mono',monospace">${ms.currentSet.ptB}</span>
             </div>
-            <div class="text-xs" style="margin-top:3px">set do ${ms.ptsToWin} pkt · mecz do ${ms.setsToWin} setów</div>
+            <div class="text-xs" style="margin-top:3px">race to ${ms.ptsToWin} pkt · race to ${ms.setsToWin} setów</div>
+            <div class="text-xs" style="margin-top:2px;color:var(--text3)">serwuje: ${pDisplayName(ms.server)}</div>
           </div>`:''}
           ${ms.done?(ms.isDraw?`<div class="warn-box" style="margin-top:8px;text-align:center">
             🤝 Remis! ${pDisplayName(ms.pA)} ${ms.setScoreA} : ${ms.setScoreB} ${pDisplayName(ms.pB)}
@@ -911,7 +1008,7 @@ function renderAttLog(setIdx){
       ${fmt(tB,dnfB,pendingB)}
     </div>`;
   }).join('');
-  const hdr=`<div class="att-header"><div>#</div><div>Scramble</div><div style="text-align:center;color:${pA.color}">${pA.name}</div><div></div><div style="text-align:center;color:${pB.color}">${pB.name}</div></div>`;
+  const hdr=`<div class="att-header"><div>#</div><div>Scramble</div><div style="text-align:center;color:${pA.color}">${pDisplayName(ms.pA)}</div><div></div><div style="text-align:center;color:${pB.color}">${pDisplayName(ms.pB)}</div></div>`;
   const el=document.getElementById('attempt-log');
   if(el) el.innerHTML=hdr+rows;
 }
@@ -926,7 +1023,7 @@ async function runMatchLoop(){
   const ms=S.matchState;
   while(!ms.done){
     const scramble=generateScramble(20);
-    const att={scramble,timeA:null,timeB:null,dnfA:false,dnfB:false,pendingA:false,pendingB:false};
+    const att={scramble,timeA:null,timeB:null,dnfA:false,dnfB:false,pendingA:false,pendingB:false,server:ms.server};
     ms.currentSet.attempts.push(att);
 
     const hA=ms.pA==='you',hB=ms.pB==='you';
@@ -935,7 +1032,10 @@ async function runMatchLoop(){
     if(!hB){const r=simulateBot(playerById(ms.pB),scramble);att.timeB=r.time;att.dnfB=r.dnf;}
     else{att.pendingB=true;}
 
-    // Show scramble to human
+    // Show scramble to human + who serves
+    const servingName=pDisplayName(ms.server);
+    const apLabel=document.getElementById('ap-label');
+    if(apLabel) apLabel.textContent=`Twoja próba (serwuje: ${servingName})`;
     const apScr=document.getElementById('ap-scramble');
     if(apScr) apScr.textContent=scramble;
     const apBtn=document.getElementById('ap-btn');
@@ -969,12 +1069,17 @@ async function runMatchLoop(){
     renderAttLog(ms.sets.length);
     updateScoreDisplay();
 
+    // Flip server each attempt
+    ms.server = ms.server===ms.pA ? ms.pB : ms.pA;
+
     // Check set end
     if(ms.currentSet.ptA>=ms.ptsToWin||ms.currentSet.ptB>=ms.ptsToWin){
       ms.currentSet.winner=ms.currentSet.ptA>=ms.ptsToWin?ms.pA:ms.pB;
       if(ms.currentSet.winner===ms.pA)ms.setScoreA++;else ms.setScoreB++;
       ms.sets.push({...ms.currentSet,attempts:[...ms.currentSet.attempts]});
       ms.currentSet={ptA:0,ptB:0,attempts:[]};
+      // Winner of last set serves first in next set
+      ms.server=ms.sets[ms.sets.length-1].winner||ms.server;
       updateScoreDisplay();
       if(!ms.done) await sleep(300);
     }
@@ -1002,13 +1107,17 @@ async function runMatchLoop(){
 
 function updateScoreDisplay(){
   const ms=S.matchState;
-  // Update set score
-  const scores=document.querySelectorAll('.sb-set-score');
-  if(scores[0])scores[0].textContent=ms.setScoreA;
-  if(scores[1])scores[1].textContent=ms.setScoreB;
-  // Update pts
-  const ptsSpans=document.querySelectorAll('.sb-set-score ~ * .mono, .match-layout span[style*="font-size:20px"]');
-  // Simpler: just update the set tabs and dots
+  // Set scores
+  const elSA=document.getElementById('live-sA');
+  const elSB=document.getElementById('live-sB');
+  if(elSA) elSA.textContent=ms.setScoreA;
+  if(elSB) elSB.textContent=ms.setScoreB;
+  // Current set pts
+  const elPA=document.getElementById('live-ptA');
+  const elPB=document.getElementById('live-ptB');
+  if(elPA) elPA.textContent=ms.currentSet.ptA;
+  if(elPB) elPB.textContent=ms.currentSet.ptB;
+  // Dots
   const dotsEl=document.querySelector('.sb-set-indicators');
   if(dotsEl){
     dotsEl.innerHTML=Array.from({length:ms.maxSets},(_,i)=>{
@@ -1017,6 +1126,7 @@ function updateScoreDisplay(){
       return`<div class="set-dot ${s.winner===ms.pA?'wa':'wb'}"></div>`;
     }).join('');
   }
+  // Set tabs
   const tabsEl=document.querySelector('.set-tabs');
   if(tabsEl){
     const allSets=[...ms.sets,...(ms.done?[]:[ms.currentSet])];
@@ -1026,10 +1136,6 @@ function updateScoreDisplay(){
       return`<div class="set-tab ${cls}" onclick="viewSet(${i})">Set ${i+1}${set.winner?' ('+pName(set.winner).slice(0,6)+')':''}</div>`;
     }).join('');
   }
-  // Update pts live
-  const ptEls=document.querySelectorAll('.sb-set-score');
-  if(ptEls[0])ptEls[0].textContent=ms.setScoreA;
-  if(ptEls[1])ptEls[1].textContent=ms.setScoreB;
 }
 
 function submitHuman(){
@@ -1077,36 +1183,108 @@ function afterMatch(){goStep(3);renderTournament();}
 // ============================================================
 // STEP 5 — RESULTS
 // ============================================================
+function buildFinalStandings(){
+  const t=S.tournament;
+  // Collect ordered list of all players with their finish position
+  const allIds=['you',...S.selectedIds];
+  const ranked=[]; // {id, place}
+  const lastRound=(b)=>b.rounds[b.rounds.length-1][0];
+  if(t.type==='elimination'||t.type==='groups_elimination'){
+    const bracket=t.type==='groups_elimination'?t.elimination:t;
+    if(bracket&&bracket.rounds){
+      // Walk rounds from last to first to assign places
+      const nl=bracket.rounds.length;
+      // Final
+      const fin=bracket.rounds[nl-1][0];
+      const winner=fin.winner;
+      const finalist=fin.a===winner?fin.b:fin.a;
+      if(winner) ranked.push({id:winner,place:1});
+      if(finalist) ranked.push({id:finalist,place:2});
+      // Semi-finalists (3rd-4th)
+      if(nl>1){
+        const semis=bracket.rounds[nl-2];
+        semis.forEach(m=>{
+          const loser=m.winner?(m.a===m.winner?m.b:m.a):null;
+          if(loser&&!ranked.find(r=>r.id===loser)) ranked.push({id:loser,place:3});
+        });
+      }
+      // Earlier losers by round
+      for(let ri=nl-3;ri>=0;ri--){
+        const place=Math.pow(2,nl-1-ri)+1;
+        bracket.rounds[ri].forEach(m=>{
+          const loser=m.winner?(m.a===m.winner?m.b:m.a):null;
+          if(loser&&!ranked.find(r=>r.id===loser)) ranked.push({id:loser,place});
+        });
+      }
+    }
+    // Group stage losers (didn't advance)
+    if(t.type==='groups_elimination'){
+      t.groups.forEach(g=>{
+        const st=calcGroupSt(g);
+        const adv=S.format.advance;
+        st.slice(adv).forEach(s=>{ if(!ranked.find(r=>r.id===s.id)) ranked.push({id:s.id,place:ranked.length+1}); });
+      });
+    }
+  } else {
+    // Round-robin: rank by wins
+    const players=t.players;
+    const gp=S.format.groupPoints||{win:3,draw:1,loss:0};
+    const st=players.map(id=>{
+      const ms_list=t.matches.filter(m=>(m.a===id||m.b===id)&&(m.winner||m.isDraw));
+      const wins=ms_list.filter(m=>m.winner===id).length;
+      const draws=ms_list.filter(m=>m.isDraw).length;
+      const losses=ms_list.length-wins-draws;
+      const pts=wins*gp.win+draws*gp.draw+losses*gp.loss;
+      return{id,pts,wins,draws,losses};
+    }).sort((a,b)=>b.pts-a.pts||b.wins-a.wins);
+    st.forEach((s,i)=>ranked.push({id:s.id,place:i+1}));
+  }
+  // Any remaining players not yet ranked
+  allIds.forEach(id=>{
+    if(!ranked.find(r=>r.id===id)) ranked.push({id,place:ranked.length+1});
+  });
+  return ranked;
+}
+
 function finalizeTournament(){
   goStep(5);
-  const t=S.tournament;
-  let podium=[];
-  const lastRound=(b)=>b.rounds[b.rounds.length-1][0];
-  if(t.type==='elimination'){
-    const fr=lastRound(t);const w=fr.winner,l=fr.a===w?fr.b:fr.a;
-    const semis=t.rounds.length>1?t.rounds[t.rounds.length-2]:[];
-    const third=semis.map(m=>m.a===m.winner?m.b:m.a).filter(Boolean)[0];
-    podium=[w,l,third].filter(Boolean);
-  } else if(t.type==='groups_elimination'&&t.elimination){
-    const fr=lastRound(t.elimination);const w=fr.winner,l=fr.a===w?fr.b:fr.a;
-    const semis=t.elimination.rounds.length>1?t.elimination.rounds[t.elimination.rounds.length-2]:[];
-    const third=semis.map(m=>m.a===m.winner?m.b:m.a).filter(Boolean)[0];
-    podium=[w,l,third].filter(Boolean);
-  } else {
-    const players=t.type==='round_robin'?t.players:[...new Set(t.matches.flatMap(m=>[m.a,m.b]).filter(Boolean))];
-    const wins={};players.forEach(p=>wins[p]=t.matches.filter(m=>m.winner===p).length);
-    podium=players.sort((a,b)=>wins[b]-wins[a]).slice(0,3);
-  }
-  const medals=['🥇','🥈','🥉'];
+  const ranked=buildFinalStandings();
+  const medals={1:'🥇',2:'🥈',3:'🥉'};
+  const rows=ranked.map(({id,place})=>{
+    const st=S.stats[id]||{solves:0,times:[],dnfs:0};
+    const ts=st.times,n=ts.length;
+    const avg=n?(ts.reduce((a,b)=>a+b,0)/n).toFixed(2)+'s':'—';
+    const best=n?Math.min(...ts).toFixed(2)+'s':'—';
+    const rate=st.solves?((st.solves-st.dnfs)/st.solves*100).toFixed(0)+'%':'—';
+    const medal=medals[place]||'';
+    return`<tr ${place<=3?'style="background:rgba(108,99,255,.05)"':''}>
+      <td class="mono" style="font-size:13px;padding:7px 10px;color:${place===1?'var(--gold)':place===2?'var(--silver)':place===3?'var(--bronze)':'var(--text3)'}">${medal}${place}</td>
+      <td style="padding:7px 10px">
+        <div style="font-weight:600;font-size:13px;color:${pColor(id)}">${pDisplayName(id)}</div>
+        <div style="font-size:10px;color:var(--text3);font-family:'Space Mono',monospace">${id!=='you'?id:''}</div>
+      </td>
+      <td class="mono" style="padding:7px 10px;font-size:12px;text-align:center">${avg}</td>
+      <td class="mono" style="padding:7px 10px;font-size:12px;text-align:center;color:var(--ok)">${best}</td>
+      <td class="mono" style="padding:7px 10px;font-size:12px;text-align:center">${rate}</td>
+      <td class="mono" style="padding:7px 10px;font-size:12px;text-align:center;color:var(--text3)">${st.solves}</td>
+    </tr>`;
+  }).join('');
+
   document.getElementById('results-content').innerHTML=`
-    <div class="podium">
-      ${[1,0,2].filter(i=>podium[i]).map(i=>`
-        <div class="pod pod${i+1}">
-          <div style="color:${pColor(podium[i])};font-size:13px;font-weight:600">${pName(podium[i])}</div>
-          <div style="font-size:24px">${medals[i]}</div>
-        </div>`).join('')}
-    </div>
-    <div class="ok-box">Turniej zakończony! 🎉</div>`;
+    <div class="ok-box mb-8">Turniej zakończony! 🎉</div>
+    <div class="card" style="padding:0;overflow:hidden">
+      <table style="width:100%;border-collapse:collapse;font-size:13px">
+        <thead><tr style="border-bottom:1px solid var(--border)">
+          <th style="padding:8px 10px;text-align:left;font-family:'Space Mono',monospace;font-size:10px;color:var(--text3)">#</th>
+          <th style="padding:8px 10px;text-align:left;font-family:'Space Mono',monospace;font-size:10px;color:var(--text3)">Zawodnik</th>
+          <th style="padding:8px 10px;text-align:center;font-family:'Space Mono',monospace;font-size:10px;color:var(--text3)">Średnia</th>
+          <th style="padding:8px 10px;text-align:center;font-family:'Space Mono',monospace;font-size:10px;color:var(--text3)">Best</th>
+          <th style="padding:8px 10px;text-align:center;font-family:'Space Mono',monospace;font-size:10px;color:var(--text3)">Skutecz.</th>
+          <th style="padding:8px 10px;text-align:center;font-family:'Space Mono',monospace;font-size:10px;color:var(--text3)">Próby</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
 }
 
 function resetAll(){S.selectedIds.clear();S.tournament=null;S.matchState=null;S.stats={};renderPickerGrid(SORTED_IDS);renderSelectedList();document.getElementById('selected-count').textContent='0';goStep(1);}
