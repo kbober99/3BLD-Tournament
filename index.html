@@ -417,13 +417,21 @@ function startRoundGeneric(rNum, players, advCount, targetId){
     `${players.length} zawodników · 5 ułożeń · ${advCount>0 ? 'awansuje '+advCount+' najlepszych' : 'klasyfikacja końcowa'}`;
 
   // Pre-simulate ALL 5 attempts for every CPU player now
-  // cpuAttempts[id] = [{scramble,time,dnf}, ...] × 5, revealed = how many shown
+  // Each attempt gets a completedAt timestamp = cumulative solve time
+  // DNF attempts use player's mean time as duration estimate
   const cpuAttempts = {};
   players.forEach(id => {
     if(id === 'you') return;
     const p = PLAYERS_DB[id];
     if(!p){ console.warn('[R'+rNum+'] Missing player:', id); return; }
     const result = simulateRound(p);
+    var cumulative = 0;
+    result.attempts.forEach(function(att) {
+      // DNF still takes ~mean time; solved takes actual time
+      var duration = att.dnf ? p.mean : att.time;
+      cumulative += duration;
+      att.completedAt = cumulative;
+    });
     cpuAttempts[id] = { attempts: result.attempts, revealed: 0 };
   });
   console.log('[R'+rNum+'] cpuAttempts built for '+Object.keys(cpuAttempts).length+' players');
@@ -449,6 +457,8 @@ function startRoundGeneric(rNum, players, advCount, targetId){
   }
 
   // Human is playing — layout: scramble bar on top, panel left + table right
+  // Clear any previous round's cur-live-table elements from other views
+  document.querySelectorAll('#cur-live-table').forEach(function(el){ if(el.closest('#'+targetId)===null) el.removeAttribute('id'); });
   var layoutHTML = '<div id="cur-scramble-bar" style="margin-bottom:14px">'
     + '<div style="font-size:10px;color:var(--text3);font-family:Space Mono,monospace;text-transform:uppercase;letter-spacing:1px;margin-bottom:5px">SCRAMBLE <span id="cur-scramble-num">#1/5</span></div>'
     + '<div class="scramble-box" id="cur-scramble-text">'+scrambles[0]+'</div>'
@@ -458,7 +468,7 @@ function startRoundGeneric(rNum, players, advCount, targetId){
     + '<div id="cur-live-table"></div>'
     + '</div>';
   el.innerHTML = layoutHTML;
-  console.log('[layout] set innerHTML, cur-live-table exists:', !!document.getElementById('cur-live-table'));
+  // layout set
   renderHumanPanel();
   renderLiveTable();
 }
@@ -501,13 +511,15 @@ function renderHumanPanel(){
     </div>`;
 
   const inp = document.getElementById('human-time-cur');
-  if(inp){ inp.focus(); inp.addEventListener('keydown', e=>{ if(e.key==='Enter') submitHumanCur(); }); }
+  if(inp){ inp.focus(); inp.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); submitHumanCur(); } }, {once:false, passive:false}); }
 }
 
 function submitHumanCur(){
   const cur = S._cur;
   if(!cur || cur.finalized) return;
-  const val = (document.getElementById('human-time-cur')?.value || '').trim();
+  const inp2 = document.getElementById('human-time-cur');
+  if(inp2) inp2.blur(); // prevent Enter re-fire
+  const val = (inp2?.value || '').trim();
   if(!val) return;
   const att = cur.humanAttempts.length;
   if(att >= 5) return;
@@ -520,10 +532,22 @@ function submitHumanCur(){
     cur.humanAttempts.push({time:t, dnf:false, scramble:cur.scrambles[att]});
   }
 
-  // Reveal attempt #(att+1) for all CPUs (1-indexed)
-  const revealTo = cur.humanAttempts.length;
-  Object.values(cur.cpuAttempts).forEach(ca => { ca.revealed = revealTo; });
-  console.log('[R'+cur.rNum+'] submit #'+revealTo+': revealed CPU to '+revealTo+', cpuKeys='+Object.keys(cur.cpuAttempts).length);
+  // Compute human's cumulative time after this attempt
+  // DNF counts as player's mean (unknown — use a rough estimate of 120s for human DNF)
+  var humanCumulative = cur.humanAttempts.reduce(function(sum, a) {
+    return sum + (a.dnf || !a.time ? 120 : a.time);
+  }, 0);
+  // Reveal all CPU attempts completed within human's elapsed time
+  Object.values(cur.cpuAttempts).forEach(function(ca) {
+    var newRevealed = 0;
+    for(var i = 0; i < ca.attempts.length; i++) {
+      if(ca.attempts[i].completedAt <= humanCumulative) newRevealed = i+1;
+      else break;
+    }
+    ca.revealed = newRevealed;
+  });
+  var revealTo = cur.humanAttempts.length;
+  console.log('[R'+cur.rNum+'] submit #'+revealTo+': humanCumulative='+humanCumulative.toFixed(1)+'s, cpuKeys='+Object.keys(cur.cpuAttempts).length);
 
   if(cur.humanAttempts.length >= 5){
     // Finalize
@@ -537,9 +561,6 @@ function submitHumanCur(){
     var elFin = document.getElementById(cur.targetId);
     if(elFin){
       elFin.innerHTML = '<div id="cur-live-table"></div>';
-      console.log('[finalize] set innerHTML, cur-live-table exists:', !!document.getElementById('cur-live-table'));
-    } else {
-      console.log('[finalize] targetId not found:', cur.targetId);
     }
     renderLiveTable();
   } else {
@@ -578,9 +599,10 @@ function buildSorted(){
 function renderLiveTable(){
   var cur=S._cur;
   if(!cur){ console.log('[rLT] no cur'); return; }
-  var container=document.getElementById('cur-live-table');
-  console.log('[rLT] R'+cur.rNum+' finalized='+cur.finalized+' sorted='+buildSorted().length+' container='+(container?'OK':'NULL'));
-  if(!container){ console.log('[rLT] container null, targetId='+cur.targetId+' el='+document.getElementById(cur.targetId)); return; }
+  var targetEl=document.getElementById(cur.targetId);
+  var container=targetEl?targetEl.querySelector('#cur-live-table'):null;
+  console.log('[rLT] R'+cur.rNum+' finalized='+cur.finalized+' sorted='+buildSorted().length+' container='+(container?'OK':'NULL')+' targetEl='+(targetEl?'OK':'NULL'));
+  if(!container){ return; }
   var sorted=buildSorted();
   var advCount=cur.advCount;
   var medals=['','🥇','🥈','🥉'];
@@ -628,7 +650,7 @@ function renderLiveTable(){
   // container already found above
   var advColHdr=advCount>0?'<th style="padding:5px 8px"></th>':'';
   var advNote=isFinalized&&advCount>0?'<div class="ok-box mt-8">Awansuje '+advCount+' zawodników.</div>':'';
-  var btn=isFinalized?'<div class="right mt-8"><button class="btn btn-primary" onclick="continueRound()">'+(cur.rNum<3?'Następna runda →':'Zobacz wyniki końcowe →')+'</button></div>':'';
+  var btn=isFinalized?'<div class="right mt-8"><button type="button" class="btn btn-primary" onclick="continueRound()">'+(cur.rNum<3?'Następna runda →':'Zobacz wyniki końcowe →')+'</button></div>':'';
   container.innerHTML='<div class="card" style="padding:0;overflow:hidden"><table class="res-table"><thead><tr>'
     +'<th style="padding:5px 8px">#</th>'
     +'<th style="padding:5px 8px">Zawodnik</th>'
