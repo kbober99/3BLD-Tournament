@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>3BLD WCA Simulator</title>
+<title>3BLD WCA Simulator v4</title>
 <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
 <style>
 :root{
@@ -251,6 +251,7 @@ function kdeResample1(player){
 function simulateAttempt(player){
   if(Math.random()>(player.acc/100)) return{time:null,dnf:true};
   const t=kdeResample1(player);
+  if(t===null||t<=0) return{time:null,dnf:true};
   return{time:+t.toFixed(2),dnf:false};
 }
 
@@ -566,60 +567,64 @@ function buildSorted(){
 }
 
 function renderLiveTable(){
-  const cur=S._cur;
-  const sorted=buildSorted();
-  const advCount=cur.advCount;
-  const medals={1:'🥇',2:'🥈',3:'🥉'};
-  const advLabel={1:'→ Półfinał',2:'→ Finał',3:''}[cur.rNum];
-  const isFinalized=cur.finalized;
-
-  const rows=sorted.map((r,i)=>{
-    const place=i+1;
-    const isYou=r.id==='you';
-    const isDNF=r.dnf&&!r.partial;
-    const isPartial=r.partial;
-    const advancing=isFinalized&&advCount>0&&place<=advCount&&!isDNF;
-    const rowCls=isYou?'you-row':advancing?'advancing':isDNF?'dnf-row':'';
-
-    const attCells=(r.attempts||[]).map((a)=>{
-      const isBest=!isDNF&&r.best!==null&&a.time===r.best;
-      return`<span class="att-chip ${a.dnf?'dnf':isBest?'best':''}">${a.dnf?'DNF':a.time.toFixed(2)}</span>`;
-    }).join('');
-    const emptySlots=isPartial?Array.from({length:5-r.attempts.length},()=>`<span class="att-chip" style="opacity:.3">···</span>`).join(''):'';
-
-    const bestDisplay=isPartial&&r.best?fmtTime(r.best,false)+'*':fmtTime(r.best,isDNF&&!isPartial);
-
-    return`<tr class="${rowCls}">
-      <td class="place-num" style="color:${place===1?'var(--gold)':place===2?'var(--silver)':place===3?'var(--bronze)':'var(--text3)'};padding:5px 8px">${medals[place]||place}</td>
-      <td style="padding:5px 8px">
-        <div style="font-weight:500;font-size:12px;color:${pColor(r.id)}">${pDisplay(r.id)}</div>
-      </td>
-      <td class="time-cell ${isDNF&&!isPartial?'dnf':r.best?'best':''}" style="padding:5px 8px">${bestDisplay}</td>
-      <td style="padding:5px 8px"><div class="attempt-cells">${attCells}${emptySlots}</div></td>
-      ${advCount>0?`<td style="padding:5px 8px;font-size:10px;color:${advancing?'var(--ok)':'var(--text3)'}">${isFinalized?(advancing?advLabel:''):'…'}</td>`:''}
-    </tr>`;
-  }).join('');
-
-  const container=document.getElementById('cur-live-table');
+  var cur=S._cur;
+  if(!cur) return;
+  var sorted=buildSorted();
+  var advCount=cur.advCount;
+  var medals=['','🥇','🥈','🥉'];
+  var advLabels=['','→ Półfinał','→ Finał',''];
+  var advLabel=advLabels[cur.rNum]||'';
+  var isFinalized=cur.finalized;
+  var rows='';
+  for(var i=0;i<sorted.length;i++){
+    var r=sorted[i];
+    var place=i+1;
+    var isYou=r.id==='you';
+    var isDNF=r.dnf&&!r.partial;
+    var isPartial=r.partial;
+    var advancing=isFinalized&&advCount>0&&place<=advCount&&!isDNF;
+    var rowCls=isYou?'you-row':advancing?'advancing':isDNF?'dnf-row':'';
+    var placeColor=place===1?'var(--gold)':place===2?'var(--silver)':place===3?'var(--bronze)':'var(--text3)';
+    var placeMedal=medals[place]||String(place);
+    var atts=r.attempts||[];
+    var attCells='';
+    for(var j=0;j<atts.length;j++){
+      var a=atts[j];
+      var isBest=!isDNF&&r.best!==null&&a.time===r.best;
+      var label=(a.dnf||a.time===null)?'DNF':a.time.toFixed(2);
+      var chipCls=a.dnf?'dnf':isBest?'best':'';
+      attCells+='<span class="att-chip '+chipCls+'">'+label+'</span>';
+    }
+    if(isPartial){
+      var empty=5-atts.length;
+      for(var k=0;k<empty;k++) attCells+='<span class="att-chip" style="opacity:.3">···</span>';
+    }
+    var bestDisplay;
+    if(isPartial&&r.best) bestDisplay=fmtTime(r.best,false)+'*';
+    else bestDisplay=fmtTime(r.best,isDNF&&!isPartial);
+    var timeCls=(isDNF&&!isPartial)?'dnf':r.best?'best':'';
+    var advCell='';
+    if(advCount>0) advCell='<td style="padding:5px 8px;font-size:10px;color:'+(advancing?'var(--ok)':'var(--text3)')+'">'+( isFinalized?(advancing?advLabel:''):'…')+'</td>';
+    rows+='<tr class="'+rowCls+'">'
+      +'<td class="place-num" style="color:'+placeColor+';padding:5px 8px">'+placeMedal+'</td>'
+      +'<td style="padding:5px 8px"><div style="font-weight:500;font-size:12px;color:'+pColor(r.id)+'">'+pDisplay(r.id)+'</div></td>'
+      +'<td class="time-cell '+timeCls+'" style="padding:5px 8px">'+bestDisplay+'</td>'
+      +'<td style="padding:5px 8px"><div class="attempt-cells">'+attCells+'</div></td>'
+      +advCell
+      +'</tr>';
+  }
+  var container=document.getElementById('cur-live-table');
   if(!container) return;
-
-  container.innerHTML=`
-    <div class="card" style="padding:0;overflow:hidden">
-      <table class="res-table">
-        <thead><tr>
-          <th style="padding:5px 8px">#</th>
-          <th style="padding:5px 8px">Zawodnik</th>
-          <th style="padding:5px 8px">Best</th>
-          <th style="padding:5px 8px">Próby</th>
-          ${advCount>0?`<th style="padding:5px 8px"></th>`:''}
-        </tr></thead>
-        <tbody>${rows}</tbody>
-      </table>
-    </div>
-    ${isFinalized&&advCount>0?`<div class="ok-box mt-8">Awansuje ${advCount} zawodników.</div>`:''}
-    ${isFinalized?`<div class="right mt-8">
-      <button class="btn btn-primary" onclick="continueRound()">${cur.rNum<3?'Następna runda →':'Zobacz wyniki końcowe →'}</button>
-    </div>`:''}`;
+  var advColHdr=advCount>0?'<th style="padding:5px 8px"></th>':'';
+  var advNote=isFinalized&&advCount>0?'<div class="ok-box mt-8">Awansuje '+advCount+' zawodników.</div>':'';
+  var btn=isFinalized?'<div class="right mt-8"><button class="btn btn-primary" onclick="continueRound()">'+(cur.rNum<3?'Następna runda →':'Zobacz wyniki końcowe →')+'</button></div>':'';
+  container.innerHTML='<div class="card" style="padding:0;overflow:hidden"><table class="res-table"><thead><tr>'
+    +'<th style="padding:5px 8px">#</th>'
+    +'<th style="padding:5px 8px">Zawodnik</th>'
+    +'<th style="padding:5px 8px">Best</th>'
+    +'<th style="padding:5px 8px">Próby</th>'
+    +advColHdr
+    +'</tr></thead><tbody>'+rows+'</tbody></table></div>'+advNote+btn;
 }
 
 // ── RENDER ROUND RESULTS TABLE ────────────────────────────────
@@ -627,7 +632,8 @@ function renderRoundResults(roundNum, sorted, advanceCount, targetId, onContinue
   const medals={1:'🥇',2:'🥈',3:'🥉'};
   const advLabel={1:'→ Półfinał',2:'→ Finał',3:''}[roundNum];
 
-  const rows=sorted.map((r,i)=>{
+  let rows='';
+  rows=sorted.map((r,i)=>{
     const place=i+1;
     const isYou=r.id==='you';
     const isDNF=r.dnf;
@@ -635,7 +641,8 @@ function renderRoundResults(roundNum, sorted, advanceCount, targetId, onContinue
     const rowCls=isYou?'you-row':advancing?'advancing':isDNF?'dnf-row':'';
     const attCells=(r.attempts||[]).map((a,ai)=>{
       const isBest=!isDNF&&a.time===r.best;
-      return`<span class="att-chip ${a.dnf?'dnf':isBest?'best':''}">${a.dnf?'DNF':a.time.toFixed(2)}</span>`;
+      const label=a.dnf||a.time===null?'DNF':a.time.toFixed(2);
+      return`<span class="att-chip ${a.dnf?'dnf':isBest?'best':''}">${label}</span>`;
     }).join('');
     return`<tr class="${rowCls}">
       <td class="place-num" style="color:${place===1?'var(--gold)':place===2?'var(--silver)':place===3?'var(--bronze)':'var(--text3)'}">${medals[place]||place}</td>
