@@ -449,15 +449,16 @@ function startRoundGeneric(rNum, players, advCount, targetId){
   }
 
   // Human is playing — layout: scramble bar on top, panel left + table right
-  el.innerHTML = `
-    <div id="cur-scramble-bar" style="margin-bottom:14px">
-      <div style="font-size:10px;color:var(--text3);font-family:'Space Mono',monospace;text-transform:uppercase;letter-spacing:1px;margin-bottom:5px">SCRAMBLE <span id="cur-scramble-num">#1/5</span></div>
-      <div class="scramble-box" id="cur-scramble-text">${scrambles[0]}</div>
-    </div>
-    <div style="display:grid;grid-template-columns:260px 1fr;gap:14px;align-items:start">
-      <div id="cur-human-panel"></div>
-      <div id="cur-live-table"></div>
-    </div>`;
+  var layoutHTML = '<div id="cur-scramble-bar" style="margin-bottom:14px">'
+    + '<div style="font-size:10px;color:var(--text3);font-family:Space Mono,monospace;text-transform:uppercase;letter-spacing:1px;margin-bottom:5px">SCRAMBLE <span id="cur-scramble-num">#1/5</span></div>'
+    + '<div class="scramble-box" id="cur-scramble-text">'+scrambles[0]+'</div>'
+    + '</div>'
+    + '<div style="display:grid;grid-template-columns:260px 1fr;gap:14px;align-items:start">'
+    + '<div id="cur-human-panel"></div>'
+    + '<div id="cur-live-table"></div>'
+    + '</div>';
+  el.innerHTML = layoutHTML;
+  console.log('[layout] set innerHTML, cur-live-table exists:', !!document.getElementById('cur-live-table'));
   renderHumanPanel();
   renderLiveTable();
 }
@@ -533,8 +534,13 @@ function submitHumanCur(){
     if(cur.rNum===1){ const adv=Math.min(S.advanceTo2,sorted.filter(r=>!r.dnf).length); S.r2players=sorted.slice(0,adv).map(r=>r.id); console.log('[R1] finalized, r2players='+S.r2players.length+': '+JSON.stringify(S.r2players.slice(0,3))); }
     if(cur.rNum===2){ const adv=Math.min(S.advanceTo3,sorted.filter(r=>!r.dnf).length); S.r3players=sorted.slice(0,adv).map(r=>r.id); console.log('[R2] finalized, r3players='+S.r3players.length+': '+JSON.stringify(S.r3players)); }
     // Replace layout with full-width table
-    const el = document.getElementById(cur.targetId);
-    if(el) el.innerHTML = '<div id="cur-live-table"></div>';
+    var elFin = document.getElementById(cur.targetId);
+    if(elFin){
+      elFin.innerHTML = '<div id="cur-live-table"></div>';
+      console.log('[finalize] set innerHTML, cur-live-table exists:', !!document.getElementById('cur-live-table'));
+    } else {
+      console.log('[finalize] targetId not found:', cur.targetId);
+    }
     renderLiveTable();
   } else {
     renderHumanPanel();
