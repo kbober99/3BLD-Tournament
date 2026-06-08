@@ -92,7 +92,7 @@ input:focus,select:focus{border-color:var(--accent);}
 /* HUMAN INPUT */
 .human-panel{background:var(--bg2);border:2px solid var(--accent);border-radius:var(--rl);padding:16px 20px;margin-bottom:14px;}
 .hp-title{font-family:'Space Mono',monospace;font-size:13px;color:var(--accent2);margin-bottom:8px;}
-.scramble-box{font-family:'Space Mono',monospace;font-size:13px;color:var(--accent2);background:var(--bg3);border:1px solid var(--accent);border-radius:var(--r);padding:10px 14px;margin-bottom:12px;white-space:nowrap;overflow-x:auto;letter-spacing:.5px;}
+.scramble-box{font-family:'Space Mono',monospace;font-size:15px;font-weight:700;color:var(--accent2);background:var(--bg3);border:1px solid var(--accent);border-radius:var(--r);padding:12px 16px;margin-bottom:12px;letter-spacing:1.5px;word-spacing:6px;white-space:nowrap;}
 .att-input-row{display:flex;gap:8px;align-items:center;margin-bottom:6px;}
 .att-input-row input{font-family:'Space Mono',monospace;font-size:18px;text-align:center;flex:1;}
 .att-num-badge{font-family:'Space Mono',monospace;font-size:11px;color:var(--text3);min-width:28px;}
@@ -117,7 +117,6 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0;}
 @keyframes spin{to{transform:rotate(360deg);}}
 .spinner{width:16px;height:16px;border:2px solid var(--border2);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite;display:inline-block;}
 </style>
-<script src="https://cdn.jsdelivr.net/npm/twemoji@14.0.2/dist/twemoji.min.js" crossorigin="anonymous"></script>
 </head>
 <body>
 <div class="app">
@@ -226,26 +225,26 @@ function generateScramble(len=20){
 }
 
 // ── KDE RESAMPLE(1) ──────────────────────────────────────────
-// Smoothed KDE with narrow fixed bandwidth to avoid outliers.
-// bw = 0.15 * std(dataset); result clamped to [mean - 2.5σ, mean + 2.5σ].
+// Smoothed KDE: narrow bandwidth, clamped to actual [min, max] of dataset.
+// This prevents out-of-range samples for bimodal/high-variance players.
 function kdeResample1(player){
   const ds = player.dataset;
   if(!ds||ds.length===0) return null;
-  const n = ds.length;
+  const n  = ds.length;
+  const lo = ds[0];           // dataset is pre-sorted ascending
+  const hi = ds[n-1];
   const mean = ds.reduce((a,b)=>a+b,0)/n;
   const std  = Math.sqrt(ds.reduce((s,x)=>s+(x-mean)**2,0)/n);
-  const bw   = 0.15 * std;
-  const lo   = mean - 2.5*std;
-  const hi   = mean + 2.5*std;
-  // Rejection sampling: resample until within bounds (max 20 tries)
-  for(let i=0;i<20;i++){
+  const bw   = Math.max(0.5, Math.min(3.0, 0.1 * std)); // narrow, min 0.5s max 3s
+  // Rejection sampling: clamp to actual data range
+  for(let i=0;i<30;i++){
     const base = ds[Math.floor(Math.random()*n)];
     const u1=Math.random()+1e-10, u2=Math.random();
     const z=Math.sqrt(-2*Math.log(u1))*Math.cos(2*Math.PI*u2);
     const t = base + bw*z;
-    if(t>=lo && t<=hi) return Math.max(1, t);
+    if(t>=lo && t<=hi) return t;
   }
-  return Math.max(1, mean); // fallback
+  return ds[Math.floor(Math.random()*n)]; // fallback: pure sample
 }
 
 // Simulate one attempt: DNF check + KDE resample
@@ -257,6 +256,7 @@ function simulateAttempt(player){
 
 // Best of 5 attempts → ranking result
 function simulateRound(player){
+  if(!player) return{attempts:[],best:null,dnf:true};
   const attempts=[];
   for(let i=0;i<5;i++){
     const sc=generateScramble(20);
@@ -275,26 +275,7 @@ function pName(id){
   if(id==='you') return S.yourName;
   const w=WCA_NAMES[id];return w?w.name:id;
 }
-// iso → flag emoji (regional indicator letters)
-function isoToFlagEmoji(iso){
-  if(!iso||iso.length!==2) return '';
-  const cp=iso.toLowerCase().split('').map(c=>0x1F1E6+(c.charCodeAt(0)-97));
-  return String.fromCodePoint(...cp);
-}
-// Returns <img> from Twemoji SVG CDN
-function flagImg(iso){
-  if(!iso||iso.length!==2) return '';
-  // Compute codepoints directly: no surrogate pair ambiguity
-  const a=(0x1F1E6+(iso.toLowerCase().charCodeAt(0)-97)).toString(16);
-  const b=(0x1F1E6+(iso.toLowerCase().charCodeAt(1)-97)).toString(16);
-  return `<img src="https://cdn.jsdelivr.net/npm/twemoji@14.0.2/assets/svg/${a}-${b}.svg" width="16" height="12" style="vertical-align:middle;border-radius:1px;margin-right:3px" alt="${iso}" onerror="this.style.display='none'">`;
-}
-function pFlag(id){
-  if(id==='you') return '';
-  const w=WCA_NAMES[id];
-  if(!w||!w.iso) return '';
-  return flagImg(w.iso);
-}
+function pFlag(id){ return ''; }
 function pDisplay(id){return pFlag(id)+pName(id);}
 function pColor(id){
   if(id==='you') return'#6c63ff';
@@ -335,7 +316,7 @@ function renderPickerGrid(ids){
     const w=WCA_NAMES[id];
     const sel=S.selectedIds.has(id);
     return`<div class="picker-item ${sel?'selected':''}" onclick="toggleP('${id}')" id="pi-${id}">
-      <div class="ava" style="font-size:0">${w&&w.iso?flagImg(w.iso):'🏳️'}</div>
+      <div class="ava" style="background:${p.color}22;color:${p.color};font-size:10px;font-weight:700">${(w?w.name.slice(0,2):id.slice(4,6)).toUpperCase()}</div>
       <div style="min-width:0">
         <div style="font-weight:500;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${w?w.name:id}</div>
         <div class="text-xs">${p.mean.toFixed(2)}s · ${p.acc}%</div>
@@ -413,57 +394,63 @@ function startTournament(){
 //   3. Show results table with advancing marker
 
 // ─ GENERIC ROUND ENGINE ─────────────────────────────────────
-// S._cur = {rNum, players, cpuAttempts, scrambles, humanAttempts, advCount, targetId}
-
-function startRoundGeneric(rNum, players, advCount, targetId){
-  document.getElementById({1:'r1-sub',2:'r2-sub',3:'r3-sub'}[rNum]).textContent=
-    `${players.length} zawodników · 5 ułożeń · ${advCount>0?'awansuje '+advCount+' najlepszych':'klasyfikacja końcowa'}`;
-
-  // cpuAttempts[id] = array of revealed attempts so far (lazy, per human submit)
-  const cpuAttempts={};
-  players.forEach(id=>{
-    if(id!=='you'){
-      // Pre-simulate all 5 attempts now, but reveal them one by one
-      const full=simulateRound(PLAYERS_DB[id]);
-      cpuAttempts[id]={full, revealed:0};
-    }
-  });
-
-  S._cur={
-    rNum, players, cpuAttempts,
-    scrambles: Array.from({length:5},()=>generateScramble(20)),
-    humanAttempts:[],
-    advCount, targetId,
-    revealedUpTo: 0, // how many CPU attempts have been revealed
-  };
-
-  renderRoundView();
-}
-
-function startRound1(){ startRoundGeneric(1, S.r1players, Math.min(S.advanceTo2,S.r1players.length), 'r1-content'); }
-function startRound2(){ startRoundGeneric(2, S.r2players, Math.min(S.advanceTo3,S.r2players.length), 'r2-content'); }
+function startRound1(){ startRoundGeneric(1, S.r1players, Math.min(S.advanceTo2, S.r1players.length), 'r1-content'); }
+function startRound2(){ startRoundGeneric(2, S.r2players, Math.min(S.advanceTo3, S.r2players.length), 'r2-content'); }
 function startRound3(){ startRoundGeneric(3, S.r3players, 0, 'r3-content'); }
+
 function continueRound(){
-  const r=S._cur.rNum;
+  const r = S._cur ? S._cur.rNum : 0;
+  console.log('[continueRound] current rNum='+r+', r2players='+S.r2players.length+', r3players='+S.r3players.length);
   if(r===1){ goStep(3); startRound2(); }
   else if(r===2){ goStep(4); startRound3(); }
   else { goStep(5); renderFinalResults(); }
 }
 
-function renderRoundView(){
-  const cur=S._cur;
-  const el=document.getElementById(cur.targetId);
-  const hasHuman=cur.players.includes('you');
+function startRoundGeneric(rNum, players, advCount, targetId){
+  console.log('[R'+rNum+'] startRoundGeneric players='+players.length+' advCount='+advCount+' target='+targetId);
+  const subEl = document.getElementById({1:'r1-sub',2:'r2-sub',3:'r3-sub'}[rNum]);
+  if(subEl) subEl.textContent =
+    `${players.length} zawodników · 5 ułożeń · ${advCount>0 ? 'awansuje '+advCount+' najlepszych' : 'klasyfikacja końcowa'}`;
+
+  // Pre-simulate ALL 5 attempts for every CPU player now
+  // cpuAttempts[id] = [{scramble,time,dnf}, ...] × 5, revealed = how many shown
+  const cpuAttempts = {};
+  players.forEach(id => {
+    if(id === 'you') return;
+    const p = PLAYERS_DB[id];
+    if(!p){ console.warn('[R'+rNum+'] Missing player:', id); return; }
+    const result = simulateRound(p);
+    cpuAttempts[id] = { attempts: result.attempts, revealed: 0 };
+  });
+  console.log('[R'+rNum+'] cpuAttempts built for '+Object.keys(cpuAttempts).length+' players');
+
+  const scrambles = Array.from({length:5}, () => generateScramble(20));
+
+  S._cur = { rNum, players, cpuAttempts, scrambles, humanAttempts: [], advCount, targetId, finalized: false };
+
+  const el = document.getElementById(targetId);
+  const hasHuman = players.includes('you');
 
   if(!hasHuman){
-    // No human this round — finalize immediately
-    finalizeRound();
+    // No human — reveal all CPU attempts and show final table immediately
+    Object.values(cpuAttempts).forEach(ca => { ca.revealed = 5; });
+    S._cur.finalized = true;
+    const sorted = buildSorted();
+    S.rounds[rNum-1] = sorted;
+    if(rNum===1){ const adv=Math.min(S.advanceTo2,sorted.filter(r=>!r.dnf).length); S.r2players=sorted.slice(0,adv).map(r=>r.id); }
+    if(rNum===2){ const adv=Math.min(S.advanceTo3,sorted.filter(r=>!r.dnf).length); S.r3players=sorted.slice(0,adv).map(r=>r.id); }
+    el.innerHTML = '<div id="cur-live-table"></div>';
+    renderLiveTable();
     return;
   }
 
-  // Human is playing — show split layout
-  el.innerHTML=`
-    <div style="display:grid;grid-template-columns:320px 1fr;gap:14px;align-items:start" id="round-grid">
+  // Human is playing — layout: scramble bar on top, panel left + table right
+  el.innerHTML = `
+    <div id="cur-scramble-bar" style="margin-bottom:14px">
+      <div style="font-size:10px;color:var(--text3);font-family:'Space Mono',monospace;text-transform:uppercase;letter-spacing:1px;margin-bottom:5px">SCRAMBLE <span id="cur-scramble-num">#1/5</span></div>
+      <div class="scramble-box" id="cur-scramble-text">${scrambles[0]}</div>
+    </div>
+    <div style="display:grid;grid-template-columns:260px 1fr;gap:14px;align-items:start">
       <div id="cur-human-panel"></div>
       <div id="cur-live-table"></div>
     </div>`;
@@ -472,118 +459,119 @@ function renderRoundView(){
 }
 
 function renderHumanPanel(){
-  const cur=S._cur;
-  const att=cur.humanAttempts.length;
-  const scrambles=cur.scrambles;
-  const roundLabel={1:'Runda 1',2:'Półfinał',3:'Finał'}[cur.rNum];
+  const cur = S._cur;
+  if(!cur) return;
+  const att = cur.humanAttempts.length;
+  const roundLabel = {1:'Runda 1',2:'Półfinał',3:'Finał'}[cur.rNum];
 
-  const prev=cur.humanAttempts.map((a,i)=>`
+  // Update scramble bar
+  const snEl = document.getElementById('cur-scramble-num');
+  if(snEl) snEl.textContent = `#${att+1}/5`;
+  const stEl = document.getElementById('cur-scramble-text');
+  if(stEl) stEl.textContent = cur.scrambles[att];
+
+  const prev = cur.humanAttempts.map((a,i)=>`
     <div style="display:flex;align-items:center;gap:6px;margin-bottom:3px">
       <span class="text-xs">#${i+1}</span>
       <span class="att-chip ${a.dnf?'dnf':''}">${a.dnf?'DNF':a.time.toFixed(2)+'s'}</span>
     </div>`).join('');
 
-  const panel=document.getElementById('cur-human-panel');
+  const panel = document.getElementById('cur-human-panel');
   if(!panel) return;
-  panel.innerHTML=`
+  panel.innerHTML = `
     <div class="human-panel" style="position:sticky;top:56px">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-        <div class="hp-title" style="margin:0">Twoja próba ${att+1}/5</div>
-        <div class="text-xs" style="color:var(--text3)">${roundLabel}</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <div class="hp-title" style="margin:0">Próba ${att+1}/5</div>
+        <div class="text-xs">${roundLabel}</div>
       </div>
-      <div class="progress-bar" style="margin-bottom:10px"><div class="progress-fill" style="width:${att/5*100}%"></div></div>
-      <div class="card-title" style="margin-bottom:6px;font-size:10px">SCRAMBLE #${att+1}</div>
-      <div class="scramble-box">${scrambles[att]}</div>
-      <div class="att-input-row" style="margin-bottom:4px">
-        <input type="text" id="human-time-cur" placeholder="czas [s] lub dnf" autocomplete="off" style="font-size:22px;text-align:center;font-family:'Space Mono',monospace">
-        <button class="btn btn-primary" onclick="submitHumanCur()" style="padding:8px 16px;font-size:16px">↵</button>
+      <div class="progress-bar" style="margin-bottom:12px"><div class="progress-fill" style="width:${att/5*100}%"></div></div>
+      <label style="font-size:11px;color:var(--text3);font-family:'Space Mono',monospace;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;display:block">Twój czas</label>
+      <div style="display:flex;gap:8px;margin-bottom:6px">
+        <input type="text" id="human-time-cur" placeholder="np. 95.43 lub dnf" autocomplete="off"
+          style="font-size:22px;text-align:center;font-family:'Space Mono',monospace;letter-spacing:1px;flex:1">
       </div>
-      <div class="text-xs">Enter = zatwierdź · wpisz "dnf" jeśli nie ułożono</div>
-      ${prev?`<div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--border)">${prev}</div>`:''}
+      <button class="btn btn-primary" onclick="submitHumanCur()" style="width:100%;font-size:15px;padding:10px">Zatwierdź ↵</button>
+      <div class="text-xs mt-8">Enter = zatwierdź · "dnf" = nie ułożono</div>
+      ${prev ? `<div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--border)">${prev}</div>` : ''}
     </div>`;
 
-  const inp=document.getElementById('human-time-cur');
-  if(inp){inp.focus();inp.onkeydown=e=>{if(e.key==='Enter')submitHumanCur();};}
+  const inp = document.getElementById('human-time-cur');
+  if(inp){ inp.focus(); inp.addEventListener('keydown', e=>{ if(e.key==='Enter') submitHumanCur(); }); }
 }
 
 function submitHumanCur(){
-  const cur=S._cur;
-  const val=(document.getElementById('human-time-cur')?.value||'').trim();
+  const cur = S._cur;
+  if(!cur || cur.finalized) return;
+  const val = (document.getElementById('human-time-cur')?.value || '').trim();
   if(!val) return;
-  const att=cur.humanAttempts.length;
-  if(val.toLowerCase()==='dnf'){
-    cur.humanAttempts.push({time:null,dnf:true,scramble:cur.scrambles[att]});
+  const att = cur.humanAttempts.length;
+  if(att >= 5) return;
+
+  if(val.toLowerCase() === 'dnf'){
+    cur.humanAttempts.push({time:null, dnf:true, scramble:cur.scrambles[att]});
   } else {
-    const t=parseFloat(val);
-    if(isNaN(t)||t<=0){alert('Podaj czas w sekundach lub "dnf"');return;}
-    cur.humanAttempts.push({time:t,dnf:false,scramble:cur.scrambles[att]});
+    const t = parseFloat(val);
+    if(isNaN(t) || t <= 0){ alert('Podaj czas w sekundach lub "dnf"'); return; }
+    cur.humanAttempts.push({time:t, dnf:false, scramble:cur.scrambles[att]});
   }
 
-  // Reveal attempt N for all CPUs (same index as just-submitted human attempt)
-  const newIdx=cur.humanAttempts.length; // 1-indexed: just pushed
-  Object.values(cur.cpuAttempts).forEach(ca=>{
-    if(ca.revealed < newIdx) ca.revealed = newIdx;
-  });
+  // Reveal attempt #(att+1) for all CPUs (1-indexed)
+  const revealTo = cur.humanAttempts.length;
+  Object.values(cur.cpuAttempts).forEach(ca => { ca.revealed = revealTo; });
+  console.log('[R'+cur.rNum+'] submit #'+revealTo+': revealed CPU to '+revealTo+', cpuKeys='+Object.keys(cur.cpuAttempts).length);
 
-  if(cur.humanAttempts.length>=5){
-    finalizeRound();
+  if(cur.humanAttempts.length >= 5){
+    // Finalize
+    cur.finalized = true;
+    Object.values(cur.cpuAttempts).forEach(ca => { ca.revealed = 5; });
+    const sorted = buildSorted();
+    S.rounds[cur.rNum-1] = sorted;
+    if(cur.rNum===1){ const adv=Math.min(S.advanceTo2,sorted.filter(r=>!r.dnf).length); S.r2players=sorted.slice(0,adv).map(r=>r.id); console.log('[R1] finalized, r2players='+S.r2players.length+': '+JSON.stringify(S.r2players.slice(0,3))); }
+    if(cur.rNum===2){ const adv=Math.min(S.advanceTo3,sorted.filter(r=>!r.dnf).length); S.r3players=sorted.slice(0,adv).map(r=>r.id); console.log('[R2] finalized, r3players='+S.r3players.length+': '+JSON.stringify(S.r3players)); }
+    // Replace layout with full-width table
+    const el = document.getElementById(cur.targetId);
+    if(el) el.innerHTML = '<div id="cur-live-table"></div>';
+    renderLiveTable();
   } else {
     renderHumanPanel();
     renderLiveTable();
   }
 }
 
-function finalizeRound(){
-  const cur=S._cur;
-  cur._finalized=true;
-  // Reveal all remaining CPU attempts
-  Object.values(cur.cpuAttempts).forEach(ca=>{ ca.revealed=5; });
-  const sorted=buildSorted(cur);
-  // Save round
-  S.rounds[cur.rNum-1]=sorted;
-  if(cur.rNum===1){ const adv=Math.min(S.advanceTo2,sorted.filter(r=>!r.dnf).length); S.r2players=sorted.slice(0,adv).map(r=>r.id); }
-  if(cur.rNum===2){ const adv=Math.min(S.advanceTo3,sorted.filter(r=>!r.dnf).length); S.r3players=sorted.slice(0,adv).map(r=>r.id); }
-
-  // Replace layout with single full-width table
-  const el=document.getElementById(cur.targetId);
-  if(el) el.innerHTML=`<div id="cur-live-table"></div>`;
-  renderLiveTable();
-}
-
 function getPlayerResult(cur, id){
-  if(id==='you'){
-    const ha=cur.humanAttempts;
-    const solved=ha.filter(a=>!a.dnf&&a.time);
-    const best=solved.length?Math.min(...solved.map(a=>a.time)):null;
-    return{attempts:ha, best, dnf:best===null, partial:ha.length<5};
+  if(id === 'you'){
+    const ha = cur.humanAttempts;
+    const solved = ha.filter(a => !a.dnf && a.time);
+    const best = solved.length ? Math.min(...solved.map(a=>a.time)) : null;
+    return { attempts:ha, best, dnf:best===null, partial:ha.length<5 };
   }
-  const ca=cur.cpuAttempts[id];
-  if(!ca) return{attempts:[],best:null,dnf:true,partial:true};
-  const atts=ca.full.attempts.slice(0, ca.revealed);
-  const solved=atts.filter(a=>!a.dnf&&a.time);
-  const best=solved.length?Math.min(...solved.map(a=>a.time)):null;
-  const partial=ca.revealed<5;
-  return{attempts:atts, best, dnf:!partial&&best===null, partial};
+  const ca = cur.cpuAttempts[id];
+  if(!ca) return { attempts:[], best:null, dnf:false, partial:true };
+  const atts = ca.attempts.slice(0, ca.revealed);
+  const solved = atts.filter(a => !a.dnf && a.time);
+  const best = solved.length ? Math.min(...solved.map(a=>a.time)) : null;
+  const partial = ca.revealed < 5;
+  return { attempts:atts, best, dnf:!partial && best===null, partial };
 }
 
-function buildSorted(cur){
+function buildSorted(){
+  const cur = S._cur;
   return cur.players.map(id=>({id,...getPlayerResult(cur,id)}))
     .sort((a,b)=>{
-      // During round: DNF-only (no attempts yet) go last, partial results ranked by current best
-      if(!a.best&&!b.best) return 0;
+      if(!a.best && !b.best) return 0;
       if(!a.best) return 1;
       if(!b.best) return -1;
-      return a.best-b.best;
+      return a.best - b.best;
     });
 }
 
 function renderLiveTable(){
   const cur=S._cur;
-  const sorted=buildSorted(cur);
+  const sorted=buildSorted();
   const advCount=cur.advCount;
   const medals={1:'🥇',2:'🥈',3:'🥉'};
   const advLabel={1:'→ Półfinał',2:'→ Finał',3:''}[cur.rNum];
-  const isFinalized=cur._finalized;
+  const isFinalized=cur.finalized;
 
   const rows=sorted.map((r,i)=>{
     const place=i+1;
