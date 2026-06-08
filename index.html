@@ -2,6 +2,9 @@
 <html lang="pl">
 <head>
 <meta charset="UTF-8">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>3BLD WCA Simulator v4</title>
 <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
@@ -122,7 +125,7 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0;}
 <div class="app">
 
 <div class="topbar">
-  <div class="logo">3BLD<span>/wca</span></div>
+  <div class="logo">3BLD<span>/wca</span></div><div style="font-size:9px;color:var(--text3);font-family:monospace;margin-left:8px">build 952503</div>
   <div class="steps">
     <div class="pill" id="pill1" onclick="goStep(1)">1·Zawodnicy</div>
     <div class="pill" id="pill2" onclick="goStep(2)">2·Runda 1</div>
@@ -568,7 +571,10 @@ function buildSorted(){
 
 function renderLiveTable(){
   var cur=S._cur;
-  if(!cur) return;
+  if(!cur){ console.log('[rLT] no cur'); return; }
+  var container=document.getElementById('cur-live-table');
+  console.log('[rLT] R'+cur.rNum+' finalized='+cur.finalized+' sorted='+buildSorted().length+' container='+(container?'OK':'NULL'));
+  if(!container){ console.log('[rLT] container null, targetId='+cur.targetId+' el='+document.getElementById(cur.targetId)); return; }
   var sorted=buildSorted();
   var advCount=cur.advCount;
   var medals=['','🥇','🥈','🥉'];
@@ -613,8 +619,7 @@ function renderLiveTable(){
       +advCell
       +'</tr>';
   }
-  var container=document.getElementById('cur-live-table');
-  if(!container) return;
+  // container already found above
   var advColHdr=advCount>0?'<th style="padding:5px 8px"></th>':'';
   var advNote=isFinalized&&advCount>0?'<div class="ok-box mt-8">Awansuje '+advCount+' zawodników.</div>':'';
   var btn=isFinalized?'<div class="right mt-8"><button class="btn btn-primary" onclick="continueRound()">'+(cur.rNum<3?'Następna runda →':'Zobacz wyniki końcowe →')+'</button></div>':'';
@@ -742,6 +747,7 @@ function resetAll(){
 }
 
 // ── INIT ──────────────────────────────────────────────────────
+console.log("BUILD 952503 loaded");
 goStep(1);
 initPicker();
 </script>
