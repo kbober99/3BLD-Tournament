@@ -10,15 +10,15 @@
 <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
 <style>
 :root{
-  --bg:#0a0a0f;--bg2:#111118;--bg3:#1a1a24;--bg4:#22222f;
-  --border:#2a2a3a;--border2:#3a3a50;
-  --text:#e8e8f0;--text2:#9090a8;--text3:#505068;
-  --accent:#6c63ff;--accent2:#8b85ff;--adim:rgba(108,99,255,.15);
-  --ok:#3dba7a;--okd:rgba(61,186,122,.12);
-  --ng:#e05c6a;--ngd:rgba(224,92,106,.12);
-  --warn:#e8a840;--warnd:rgba(232,168,64,.12);
-  --gold:#f0c040;--silver:#b0b8c8;--bronze:#c8845a;
-  --r:8px;--rl:14px;
+  --bg:#f4f5f7;--bg2:#ffffff;--bg3:#f0f1f4;--bg4:#e4e6eb;
+  --border:#dde0e8;--border2:#c8ccd6;
+  --text:#1a1d2e;--text2:#5a5f7a;--text3:#9096b0;
+  --accent:#5b50f0;--accent2:#7b72f5;--adim:rgba(91,80,240,.08);
+  --ok:#1a9e5c;--okd:rgba(26,158,92,.1);
+  --ng:#d63a4a;--ngd:rgba(214,58,74,.1);
+  --warn:#c97a10;--warnd:rgba(201,122,16,.1);
+  --gold:#c49a00;--silver:#7a8699;--bronze:#a0622a;
+  --r:8px;--rl:12px;
 }
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
 body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;font-size:15px;line-height:1.6;}
@@ -26,7 +26,7 @@ h2,h3{font-family:'Space Mono',monospace;font-weight:700;}
 code{font-family:'Space Mono',monospace;font-size:11px;background:var(--bg3);padding:2px 5px;border-radius:3px;color:var(--accent2);}
 
 .app{display:flex;flex-direction:column;min-height:100vh;}
-.topbar{display:flex;align-items:center;gap:12px;padding:9px 20px;border-bottom:1px solid var(--border);background:var(--bg2);position:sticky;top:0;z-index:100;flex-wrap:wrap;}
+.topbar{display:flex;align-items:center;gap:12px;padding:9px 20px;border-bottom:1px solid var(--border);background:var(--bg2);position:sticky;top:0;z-index:100;flex-wrap:wrap;box-shadow:0 1px 4px rgba(0,0,0,.07);}
 .logo{font-family:'Space Mono',monospace;font-size:15px;font-weight:700;color:var(--accent2);}
 .logo span{color:var(--text3);}
 .steps{display:flex;gap:3px;}
@@ -36,12 +36,12 @@ code{font-family:'Space Mono',monospace;font-size:11px;background:var(--bg3);pad
 
 .main{flex:1;padding:22px 18px;max-width:1100px;margin:0 auto;width:100%;}
 
-.card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--rl);padding:16px 20px;margin-bottom:14px;}
+.card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--rl);padding:16px 20px;margin-bottom:14px;box-shadow:0 1px 4px rgba(0,0,0,.06);}
 .card-title{font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;font-family:'Space Mono',monospace;}
 
 label{font-size:13px;color:var(--text2);display:block;margin-bottom:4px;}
-input[type=text],input[type=number],select{background:var(--bg3);border:1px solid var(--border);border-radius:var(--r);color:var(--text);font-family:'DM Sans',sans-serif;font-size:14px;padding:7px 10px;width:100%;outline:none;transition:border .15s;}
-input:focus,select:focus{border-color:var(--accent);}
+input[type=text],input[type=number],select{background:var(--bg2);border:1px solid var(--border2);border-radius:var(--r);color:var(--text);font-family:'DM Sans',sans-serif;font-size:14px;padding:7px 10px;width:100%;outline:none;transition:border .15s;box-shadow:0 1px 3px rgba(0,0,0,.05);}
+input:focus,select:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--adim);}
 .row{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;}
 .col{flex:1;min-width:120px;}
 
@@ -76,26 +76,34 @@ input:focus,select:focus{border-color:var(--accent);}
 .rtab.done{border-color:var(--ok);color:var(--ok);}
 
 /* RESULTS TABLE */
-.res-table{width:100%;border-collapse:collapse;font-size:12px;}
-.res-table th{font-family:'Space Mono',monospace;font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;padding:6px 8px;text-align:left;border-bottom:1px solid var(--border);white-space:nowrap;}
-.res-table td{padding:5px 8px;border-bottom:1px solid var(--border);}
-.res-table tr:last-child td{border-bottom:none;}
-.res-table tr.advancing{background:rgba(61,186,122,.05);}
-.res-table tr.you-row{background:var(--adim);}
-.res-table tr.dnf-row{opacity:.5;}
-.place-num{font-family:'Space Mono',monospace;font-size:11px;color:var(--text3);}
-.time-cell{font-family:'Space Mono',monospace;font-size:11px;text-align:right;}
+.res-table{width:100%;border-collapse:separate;border-spacing:0 2px;font-size:12px;}
+.res-table th{font-family:'Space Mono',monospace;font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;padding:6px 10px;text-align:left;background:var(--bg3);white-space:nowrap;}
+.res-table th:first-child{border-radius:var(--r) 0 0 var(--r);}
+.res-table th:last-child{border-radius:0 var(--r) var(--r) 0;}
+.res-table td{padding:6px 10px;background:var(--bg2);border-top:1px solid var(--border);border-bottom:1px solid var(--border);}
+.res-table td:first-child{border-left:1px solid var(--border);border-radius:var(--r) 0 0 var(--r);}
+.res-table td:last-child{border-right:1px solid var(--border);border-radius:0 var(--r) var(--r) 0;}
+.res-table tr.advancing td{background:#edfaf3;border-color:#b6e8ce;}
+.res-table tr.advancing td:first-child{border-left:3px solid var(--ok);}
+.res-table tr.guaranteed td{background:#d6f5e6;border-color:#8fd9b0;}
+.res-table tr.guaranteed td:first-child{border-left:3px solid #0e8f50;}
+.res-table tr.you-row td{background:#eeedfd;border-color:#c5c2f5;}
+.res-table tr.you-row td:first-child{border-left:3px solid var(--accent);}
+.res-table tr.dnf-row td{opacity:.45;}
+.place-num{font-family:'Space Mono',monospace;font-size:12px;font-weight:700;color:var(--text3);}
+.time-cell{font-family:'Space Mono',monospace;font-size:12px;text-align:right;}
 .time-cell.best{color:var(--ok);font-weight:700;}
 .time-cell.dnf{color:var(--ng);}
-.attempt-cells{display:flex;gap:3px;}
-.att-chip{font-family:'Space Mono',monospace;font-size:10px;padding:1px 5px;border-radius:3px;background:var(--bg3);color:var(--text2);}
-.att-chip.best{background:var(--okd);color:var(--ok);font-weight:700;}
-.att-chip.dnf{background:var(--ngd);color:var(--ng);}
+.attempt-cells{display:flex;gap:3px;flex-wrap:wrap;}
+.att-chip{font-family:'Space Mono',monospace;font-size:10px;padding:2px 6px;border-radius:4px;background:var(--bg3);color:var(--text2);border:1px solid var(--border);}
+.att-chip.best{background:var(--okd);color:var(--ok);font-weight:700;border-color:#b6e8ce;}
+.att-chip.dnf{background:var(--ngd);color:var(--ng);border-color:#f5b8be;}
 
 /* HUMAN INPUT */
-.human-panel{background:var(--bg2);border:2px solid var(--accent);border-radius:var(--rl);padding:16px 20px;margin-bottom:14px;}
+.human-panel{background:var(--bg2);border:2px solid var(--accent);border-radius:var(--rl);padding:16px 20px;margin-bottom:14px;box-shadow:0 2px 12px rgba(91,80,240,.12);}
 .hp-title{font-family:'Space Mono',monospace;font-size:13px;color:var(--accent2);margin-bottom:8px;}
-.scramble-box{font-family:'Space Mono',monospace;font-size:15px;font-weight:700;color:var(--accent2);background:var(--bg3);border:1px solid var(--accent);border-radius:var(--r);padding:12px 16px;margin-bottom:12px;letter-spacing:1.5px;word-spacing:6px;white-space:nowrap;}
+.scramble-box{font-family:'Space Mono',monospace;font-size:15px;font-weight:700;color:var(--accent2);background:var(--bg3);border:1px solid var(--accent);border-radius:var(--r);padding:12px 16px;margin-bottom:12px;letter-spacing:1.5px;word-spacing:6px;white-space:nowrap;text-align:center;transition:background .35s,color .35s;}
+.scramble-box.flash{background:var(--accent);color:#fff;}
 .att-input-row{display:flex;gap:8px;align-items:center;margin-bottom:6px;}
 .att-input-row input{font-family:'Space Mono',monospace;font-size:18px;text-align:center;flex:1;}
 .att-num-badge{font-family:'Space Mono',monospace;font-size:11px;color:var(--text3);min-width:28px;}
@@ -216,15 +224,37 @@ const WCA_NAMES={"2022DULL01":{name:"Marc Dullemond",country:"Holandia",iso:"nl"
 const FACES=['U','D','F','B','L','R'];
 const MODS=["","'","2"];
 const OPP_={U:'D',D:'U',F:'B',B:'F',L:'R',R:'L'};
-function generateScramble(len=20){
-  const m=[];let lf=null,slf=null;
-  for(let i=0;i<len;i++){
-    let f;
-    do{f=FACES[Math.floor(Math.random()*6)];}
-    while(f===lf||(slf&&OPP_[f]===lf&&OPP_[slf]===f)||(slf&&f===slf&&OPP_[f]===lf));
-    m.push(f+MODS[Math.floor(Math.random()*3)]);slf=lf;lf=f;
+
+function generateScramble(){
+  // Random total length 18-23, of which 0-2 are wide moves appended at the END
+  var totalLen = 18 + Math.floor(Math.random() * 6);      // 18..23
+  var wideCount = Math.floor(Math.random() * 3);          // 0..2
+  var normalCount = totalLen - wideCount;
+
+  // Build normal moves with same-face/opposite-face avoidance
+  var moves = [];
+  var lf = null, slf = null;
+  for(var i = 0; i < normalCount; i++){
+    var f, attempts = 0;
+    do {
+      f = FACES[Math.floor(Math.random() * 6)];
+      attempts++;
+    } while(attempts < 20 && (
+      f === lf ||
+      (slf && OPP_[f] === lf && OPP_[slf] === f) ||
+      (slf && f === slf && OPP_[f] === lf)
+    ));
+    moves.push(f + MODS[Math.floor(Math.random() * 3)]);
+    slf = lf; lf = f;
   }
-  return m.join(' ');
+
+  // Append wide moves at the end
+  for(var w = 0; w < wideCount; w++){
+    var wFace = FACES[Math.floor(Math.random() * 6)];
+    moves.push(wFace + 'w' + MODS[Math.floor(Math.random() * 3)]);
+  }
+
+  return moves.join(' ');
 }
 
 // ── KDE RESAMPLE(1) ──────────────────────────────────────────
@@ -526,11 +556,15 @@ function startAttemptSequence(attIdx){
   cur.currentAttIdx = attIdx;
   cur.animating = true;
 
-  // Update scramble display
+  // Update scramble display with flash animation
   var snEl = document.getElementById('cur-scramble-num');
   if(snEl) snEl.textContent = '#'+(attIdx+1)+'/5';
   var stEl = document.getElementById('cur-scramble-text');
-  if(stEl) stEl.textContent = cur.scrambles[attIdx];
+  if(stEl){
+    stEl.textContent = cur.scrambles[attIdx];
+    stEl.classList.add('flash');
+    setTimeout(function(){ stEl.classList.remove('flash'); }, 400);
+  }
 
   // Hide human panel while "before" CPUs are resolving
   var panel = document.getElementById('cur-human-panel');
@@ -648,8 +682,33 @@ function renderLiveTable(){
     var isYou=r.id==='you';
     var isDNF=r.dnf&&!r.partial;
     var isPartial=r.partial;
-    var advancing=isFinalized&&advCount>0&&place<=advCount&&!isDNF;
-    var rowCls=isYou?'you-row':advancing?'advancing':isDNF?'dnf-row':'';
+    var advancing=advCount>0&&place<=advCount&&!isDNF;
+    // Guaranteed: advancing AND no partial player without a best can push them out
+    var partialUnscoredAbove=0;
+    if(advancing&&!isFinalized){
+      // count players ranked above current position who still have partial/no score
+      // and could potentially get a better time
+      var myBest=r.best;
+      for(var pi2=0;pi2<sorted.length&&pi2<place-1;pi2++){
+        if(sorted[pi2].partial&&!sorted[pi2].best) partialUnscoredAbove++;
+      }
+      // Also count unscored partial players ranked below who might overtake
+      var couldOvertake=0;
+      for(var pi3=place;pi3<sorted.length;pi3++){
+        if(sorted[pi3].partial) couldOvertake++;
+      }
+      // guaranteed if even if all couldOvertake players get scores, place still ≤ advCount
+      // i.e. place + couldOvertake (who could all be better) still leaves us in top
+      // simplified: if place + couldOvertake <= advCount → guaranteed
+    }
+    var guaranteed=advancing&&!isFinalized&&(function(){
+      var couldBeat=0;
+      for(var gi=place;gi<sorted.length;gi++){
+        if(sorted[gi].partial&&(!sorted[gi].best||sorted[gi].best<(r.best||Infinity))) couldBeat++;
+      }
+      return couldBeat===0;
+    })();
+    var rowCls=isYou?'you-row':guaranteed?'guaranteed':advancing?'advancing':isDNF?'dnf-row':'';
     var placeColor=place===1?'var(--gold)':place===2?'var(--silver)':place===3?'var(--bronze)':'var(--text3)';
     var placeMedal=medals[place]||String(place);
     var atts=r.attempts||[];
@@ -670,7 +729,11 @@ function renderLiveTable(){
     else bestDisplay=fmtTime(r.best,isDNF&&!isPartial);
     var timeCls=(isDNF&&!isPartial)?'dnf':r.best?'best':'';
     var advCell='';
-    if(advCount>0) advCell='<td style="padding:5px 8px;font-size:10px;color:'+(advancing?'var(--ok)':'var(--text3)')+'">'+( isFinalized?(advancing?advLabel:''):'…')+'</td>';
+    if(advCount>0){
+      var advColor=guaranteed?'#0e8f50':advancing?'var(--ok)':'var(--text3)';
+      var advText=isFinalized?(advancing?advLabel:''):(guaranteed?'✓ '+advLabel:advancing?advLabel:'');
+      advCell='<td style="padding:6px 10px;font-size:10px;font-weight:'+(guaranteed?'700':'400')+';color:'+advColor+'">'+advText+'</td>';
+    }
     rows+='<tr class="'+rowCls+'">'
       +'<td class="place-num" style="color:'+placeColor+';padding:5px 8px">'+placeMedal+'</td>'
       +'<td style="padding:5px 8px"><div style="font-weight:500;font-size:12px;color:'+pColor(r.id)+'">'+pDisplay(r.id)+'</div></td>'
@@ -683,7 +746,7 @@ function renderLiveTable(){
   var advColHdr=advCount>0?'<th style="padding:5px 8px"></th>':'';
   var advNote=isFinalized&&advCount>0?'<div class="ok-box mt-8">Awansuje '+advCount+' zawodników.</div>':'';
   var btn=isFinalized?'<div class="right mt-8"><button type="button" class="btn btn-primary" onclick="continueRound()">'+(cur.rNum<3?'Następna runda →':'Zobacz wyniki końcowe →')+'</button></div>':'';
-  container.innerHTML='<div class="card" style="padding:0;overflow:hidden"><table class="res-table"><thead><tr>'
+  container.innerHTML='<div style="background:var(--bg2);border-radius:var(--rl);overflow:hidden;border:1px solid var(--border);box-shadow:0 1px 4px rgba(0,0,0,.06)"><table class="res-table"><thead><tr>'
     +'<th style="padding:5px 8px">#</th>'
     +'<th style="padding:5px 8px">Zawodnik</th>'
     +'<th style="padding:5px 8px">Best</th>'
@@ -723,7 +786,7 @@ function renderRoundResults(roundNum, sorted, advanceCount, targetId, onContinue
 
   const advRow=advanceCount>0?`<th style="font-size:9px;color:var(--text3);padding:6px 8px"></th>`:'';
   const html=`
-    <div class="card" style="padding:0;overflow:hidden">
+    <div style="background:var(--bg2);border-radius:var(--rl);overflow:hidden;border:1px solid var(--border);box-shadow:0 1px 4px rgba(0,0,0,.06)">
       <table class="res-table">
         <thead><tr>
           <th>#</th><th>Zawodnik</th><th>Best</th><th>Próby</th>${advanceCount>0?'<th></th>':''}
@@ -771,7 +834,7 @@ function renderFinalResults(){
   }).join('');
 
   document.getElementById('final-results').innerHTML=`
-    <div class="card" style="padding:0;overflow:hidden">
+    <div style="background:var(--bg2);border-radius:var(--rl);overflow:hidden;border:1px solid var(--border);box-shadow:0 1px 4px rgba(0,0,0,.06)">
       <table class="res-table">
         <thead><tr>
           <th style="padding:6px 10px">#</th>
