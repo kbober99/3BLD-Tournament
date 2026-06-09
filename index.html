@@ -140,6 +140,7 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0;}
     <div class="pill" id="pill3" onclick="goStep(3)">3·Półfinał</div>
     <div class="pill" id="pill4" onclick="goStep(4)">4·Finał</div>
     <div class="pill" id="pill5" onclick="goStep(5)">5·Wyniki</div>
+    <div class="pill" id="pill6" onclick="goStep(6)">6·Mój raport</div>
   </div>
 </div>
 
@@ -200,6 +201,16 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0;}
   <div id="r3-content"></div>
 </div>
 
+<!-- STEP 6: My report -->
+<div id="view-6" class="hidden fade-in">
+  <h2 class="sh">Mój raport</h2>
+  <p class="ss">Twoje wyniki ze wszystkich rund.</p>
+  <div id="my-report"></div>
+  <div class="right" style="margin-top:16px">
+    <button class="btn btn-secondary" onclick="resetAll()">🔄 Nowy turniej</button>
+  </div>
+</div>
+
 <!-- STEP 5: Results -->
 <div id="view-5" class="hidden fade-in">
   <h2 class="sh">Wyniki końcowe</h2>
@@ -207,6 +218,7 @@ hr{border:none;border-top:1px solid var(--border);margin:12px 0;}
   <div id="final-results"></div>
   <div class="right" style="margin-top:16px">
     <button class="btn btn-secondary" onclick="resetAll()">🔄 Nowy turniej</button>
+    <button class="btn btn-primary" onclick="goStep(6);renderMyReport()">📋 Mój raport →</button>
   </div>
 </div>
 
@@ -462,9 +474,17 @@ function startRoundGeneric(rNum, players, advCount, targetId){
   // For each of 5 attempts, shuffle cpuIds and pick a random split point K
   // K CPUs go before human, rest go after
   const scrambles = Array.from({length:5}, () => generateScramble(20));
-  const attemptOrders = Array.from({length:5}, function() {
+  const attemptOrders = Array.from({length:5}, function(_, attIdx) {
     var shuffled = cpuIds.slice().sort(function(){ return Math.random()-0.5; });
-    var k = Math.floor(Math.random() * (cpuIds.length + 1));
+    var k;
+    if(attIdx === 0){
+      // First attempt: guarantee at least a few CPUs go before human
+      var minBefore = Math.min(cpuIds.length, 3 + Math.floor(Math.random() * 8)); // 3-10
+      k = minBefore + Math.floor(Math.random() * (cpuIds.length - minBefore + 1));
+      k = Math.min(k, cpuIds.length);
+    } else {
+      k = Math.floor(Math.random() * (cpuIds.length + 1));
+    }
     return { before: shuffled.slice(0, k), after: shuffled.slice(k) };
   });
 
@@ -576,18 +596,17 @@ function startAttemptSequence(attIdx){
     cur.animating = false;
     renderHumanPanel();
     renderLiveTable();
-  });
+  }, 30);
 }
 
-function revealSequentially(ids, attIdx, i, onDone){
+function revealSequentially(ids, attIdx, i, onDone, delayMs){
   var cur = S._cur;
   if(!cur || i >= ids.length){ onDone(); return; }
   var id = ids[i];
   var ca = cur.cpuAttempts[id];
   if(ca && ca.revealed <= attIdx) ca.revealed = attIdx + 1;
   renderLiveTable();
-  // Fixed 30ms per result regardless of attempt time or round size
-  setTimeout(function(){ revealSequentially(ids, attIdx, i+1, onDone); }, 30);
+  setTimeout(function(){ revealSequentially(ids, attIdx, i+1, onDone, delayMs); }, delayMs||30);
 }
 
 function submitHumanCur(){
@@ -615,6 +634,11 @@ function submitHumanCur(){
   renderLiveTable();
 
   var order = cur.attemptOrders[att];
+  // After-sequence: spread over 50-70s so CPU results trickle in naturally
+  var afterTotal = 50000 + Math.floor(Math.random() * 20000);
+  var afterDelay = order.after.length > 1
+    ? Math.floor(afterTotal / order.after.length)
+    : afterTotal; // if only 1 or 0 CPUs left, pause for full duration anyway
   revealSequentially(order.after, att, 0, function(){
     cur.animating = false;
     var nextAtt = cur.humanAttempts.length;
@@ -632,7 +656,7 @@ function submitHumanCur(){
     } else {
       startAttemptSequence(nextAtt);
     }
-  });
+  }, 30);
 }
 
 function getPlayerResult(cur, id){
@@ -847,11 +871,71 @@ function renderFinalResults(){
     </div>`;
 }
 
+
+// ── MY PERFORMANCE REPORT ────────────────────────────────────
+function renderMyReport(){
+  var roundNames = ['Runda 1','Półfinał','Finał'];
+  var html = '';
+  for(var ri = 0; ri < 3; ri++){
+    var round = S.rounds[ri];
+    if(!round) continue;
+    var myResult = round.find(function(r){ return r.id==='you'; });
+    if(!myResult) continue;
+
+    var place = round.indexOf(myResult) + 1;
+    var total = round.length;
+    var roundName = roundNames[ri];
+    var advanced = ri===0 ? S.r2players.includes('you') : ri===1 ? S.r3players.includes('you') : false;
+    var advText = ri===2 ? '' : (advanced ? '✓ Awans' : '✗ Odpadł');
+    var advColor = advanced ? 'var(--ok)' : ri===2 ? 'var(--text3)' : 'var(--ng)';
+
+    html += '<div class="card" style="margin-bottom:16px">'
+      + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">'
+      + '<div style="font-family:Space Mono,monospace;font-weight:700;font-size:15px">'+roundName+'</div>'
+      + '<div style="display:flex;gap:12px;align-items:center">'
+      + '<div style="font-family:Space Mono,monospace;font-size:13px;color:var(--text2)">Miejsce: <strong style="color:var(--text)">'+place+'/'+total+'</strong></div>'
+      + (advText ? '<div style="font-family:Space Mono,monospace;font-size:12px;color:'+advColor+';font-weight:700">'+advText+'</div>' : '')
+      + '</div></div>';
+
+    // Best result
+    var best = myResult.best;
+    var isDNF = myResult.dnf;
+    html += '<div style="display:flex;gap:8px;align-items:center;margin-bottom:14px">'
+      + '<div style="font-size:11px;color:var(--text3);font-family:Space Mono,monospace;text-transform:uppercase;letter-spacing:1px;min-width:40px">BEST</div>'
+      + '<div style="font-family:Space Mono,monospace;font-size:22px;font-weight:700;color:'+(isDNF?'var(--ng)':'var(--ok)')+'">'+fmtTime(best,isDNF)+'</div>'
+      + '</div>';
+
+    // Attempts table
+    html += '<table style="width:100%;border-collapse:collapse;font-size:12px">'
+      + '<thead><tr style="border-bottom:1px solid var(--border)">'
+      + '<th style="padding:5px 8px;text-align:left;font-family:Space Mono,monospace;font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:1px">#</th>'
+      + '<th style="padding:5px 8px;text-align:left;font-family:Space Mono,monospace;font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:1px">Czas</th>'
+      + '<th style="padding:5px 8px;text-align:left;font-family:Space Mono,monospace;font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:1px">Scramble</th>'
+      + '</tr></thead><tbody>';
+
+    (myResult.attempts||[]).forEach(function(att, ai){
+      var isBest = !isDNF && att.time === best;
+      var timeStr = att.dnf ? 'DNF' : att.time ? att.time.toFixed(2)+'s' : '—';
+      var timeColor = att.dnf ? 'var(--ng)' : isBest ? 'var(--ok)' : 'var(--text)';
+      html += '<tr style="border-bottom:1px solid var(--border);'+(isBest?'background:var(--okd)':'')+'">'
+        + '<td style="padding:6px 8px;font-family:Space Mono,monospace;font-size:11px;color:var(--text3)">'+(ai+1)+'</td>'
+        + '<td style="padding:6px 8px;font-family:Space Mono,monospace;font-weight:'+(isBest?'700':'400')+';color:'+timeColor+'">'+timeStr+(isBest?' ★':'')+'</td>'
+        + '<td style="padding:6px 8px;font-family:Space Mono,monospace;font-size:10px;color:var(--text2);letter-spacing:.5px">'+(att.scramble||'—')+'</td>'
+        + '</tr>';
+    });
+    html += '</tbody></table></div>';
+  }
+
+  if(!html) html = '<div class="info-box">Brak danych — ukończ co najmniej jedną rundę.</div>';
+  document.getElementById('my-report').innerHTML = html;
+}
+
 // ── NAV ───────────────────────────────────────────────────────
 function goStep(n){
-  for(let i=1;i<=5;i++){
+  for(let i=1;i<=6;i++){
     document.getElementById('view-'+i).classList.add('hidden');
     const p=document.getElementById('pill'+i);
+    if(!p) continue;
     p.classList.remove('active','done');
     if(i<n) p.classList.add('done');
     else if(i===n) p.classList.add('active');
