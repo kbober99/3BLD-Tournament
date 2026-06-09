@@ -94,8 +94,8 @@ input:focus,select:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--a
 .time-cell{font-family:'Space Mono',monospace;font-size:12px;text-align:right;}
 .time-cell.best{color:var(--ok);font-weight:700;}
 .time-cell.dnf{color:var(--ng);}
-.attempt-cells{display:flex;gap:3px;flex-wrap:wrap;}
-.att-chip{font-family:'Space Mono',monospace;font-size:10px;padding:2px 6px;border-radius:4px;background:var(--bg3);color:var(--text2);border:1px solid var(--border);}
+.attempt-cells{display:flex;gap:3px;}
+.att-chip{font-family:'Space Mono',monospace;font-size:10px;padding:2px 0;border-radius:4px;background:var(--bg3);color:var(--text2);border:1px solid var(--border);width:52px;text-align:center;display:inline-block;white-space:nowrap;overflow:hidden;}
 .att-chip.best{background:var(--okd);color:var(--ok);font-weight:700;border-color:#b6e8ce;}
 .att-chip.dnf{background:var(--ngd);color:var(--ng);border-color:#f5b8be;}
 
@@ -237,6 +237,293 @@ const FACES=['U','D','F','B','L','R'];
 const MODS=["","'","2"];
 const OPP_={U:'D',D:'U',F:'B',B:'F',L:'R',R:'L'};
 
+// Wide moves only from U, F, R families; same family can't be adjacent
+
+// ── SCRAMBLE ANALYSIS (port of cube.py / solve.py) ───────────
+// Computes: algs, edge_targets, corner_targets, solved_edges, solved_corners,
+//           flips, twists, edge_breaks, corner_breaks for a given scramble string.
+
+const CUBE_STICKERS = {
+  "UF":"bufferX","FU":"buffer1","UB":"A","BU":"B","UL":"E","LU":"F","UR":"G","RU":"H",
+  "DF":"I","FD":"J","DL":"M","LD":"N","DB":"O","BD":"P","DR":"K","RD":"L",
+  "FR":"R","RF":"S","FL":"T","LF":"U","BL":"W","LB":"C","BR":"D","RB":"Z",
+  "UFR":"bufferX","FUR":"buffer1","RUF":"buffer2",
+  "UFL":"G","FUL":"H","LUF":"I","UBR":"A","BUR":"B","RUB":"C",
+  "UBL":"D","BUL":"E","LUB":"F","DBR":"J","BDR":"K","RDB":"M",
+  "DFR":"N","FDR":"O","RDF":"P","DFL":"R","FDL":"S","LDF":"T",
+  "DBL":"U","BDL":"W","LDB":"Z"
+};
+
+const CUBE_RINGS = {
+  "U":[[["UF","UL","UB","UR"],["FU","LU","BU","RU"]],[["UFR","UFL","UBL","UBR"],["FUR","LUF","BUL","RUB"],["RUF","FUL","LUB","BUR"]]],
+  "D":[[["DF","DR","DB","DL"],["FD","RD","BD","LD"]],[["DFR","DBR","DBL","DFL"],["FDR","RDB","BDL","LDF"],["RDF","BDR","LDB","FDL"]]],
+  "R":[[["UR","BR","DR","FR"],["RU","RB","RD","RF"]],[["UFR","BUR","DBR","FDR"],["FUR","UBR","BDR","DFR"],["RUF","RUB","RDB","RDF"]]],
+  "L":[[["UL","FL","DL","BL"],["LU","LF","LD","LB"]],[["UFL","FDL","DBL","BUL"],["FUL","DFL","BDL","UBL"],["LUF","LDF","LDB","LUB"]]],
+  "F":[[["UF","RF","DF","LF"],["FU","FR","FD","FL"]],[["UFR","RDF","DFL","LUF"],["FUR","FDR","FDL","FUL"],["RUF","DFR","LDF","UFL"]]],
+  "B":[[["UB","LB","DB","RB"],["BU","BL","BD","BR"]],[["UBR","LUB","DBL","RDB"],["BUR","BUL","BDL","BDR"],["RUB","UBL","LDB","DBR"]]],
+  "M":[[["UF","FD","DB","BU"],["FU","DF","BD","UB"]],[]],
+  "S":[[["UR","RD","DL","LU"],["RU","DR","LD","UL"]],[]],
+  "E":[[["FL","RF","BR","LB"],["LF","FR","RB","BL"]],[]]
+};
+
+const CUBE_MIDDLES = {
+  "Rw2":["R2","M2"],"Uw2":["U2","E2"],"Fw2":["F2","S2"],
+  "Rw'":["R'","M"],"Uw'":["U'","E"],"Fw'":["F'","S'"],
+  "Rw":["R","M'"],"Uw":["U","E'"],"Fw":["F","S"]
+};
+
+const CUBE_ROTATIONS = {
+  "M":"x","S":"z","E":"y",
+  "x'":["R'","L","M"],"y'":["U'","D","E"],"z":["F'","S'","B"],
+  "x":["R","L'","M'"],"y":["U","D'","E'"],"z'":["F","S","B'"],
+  "x2":["R2","L2","M2"],"z2":["F2","B2","S2"],"y2":["U2","D2","E2"]
+};
+
+function applyMove(stickers, move) {
+  var layer = move[0];
+  var dir = move.length === 1 ? 1 : (move.slice(-1) === "2" ? 2 : -1);
+  var rings = CUBE_RINGS[layer];
+  if(!rings) return;
+  rings.forEach(function(ringGroup) {
+    ringGroup.forEach(function(group) {
+      var cycled;
+      if(dir===1)       cycled=[group[3],group[0],group[1],group[2]];
+      else if(dir===-1) cycled=[group[1],group[2],group[3],group[0]];
+      else              cycled=[group[2],group[3],group[0],group[1]];
+      var saved=cycled.map(function(t){return stickers[t];});
+      for(var i=0;i<4;i++) stickers[group[i]]=saved[i];
+    });
+  });
+}
+
+function scrambleAnalysis(scrambleStr) {
+  if(!scrambleStr || !scrambleStr.trim()) return null;
+
+  var st = Object.assign({}, CUBE_STICKERS);
+
+  var raw = scrambleStr.trim().split(/\s+/);
+  var expanded = [];
+  raw.forEach(function(mv) {
+    if(mv.indexOf("w") !== -1) {
+      var parts = CUBE_MIDDLES[mv];
+      if(parts) parts.forEach(function(p){ expanded.push(p); });
+    } else {
+      expanded.push(mv);
+    }
+  });
+
+  var rotPath = [];
+  expanded.forEach(function(mv) {
+    var lay = mv[0];
+    if(CUBE_ROTATIONS[lay] && typeof CUBE_ROTATIONS[lay] === "string") {
+      var rot = CUBE_ROTATIONS[lay];
+      if(mv.length===1) rotPath.push(rot);
+      else rotPath.push(rot + mv.slice(-1));
+    }
+  });
+  var returning = [];
+  for(var ri = rotPath.length-1; ri >= 0; ri--) {
+    var rot = rotPath[ri];
+    var rMoves = CUBE_ROTATIONS[rot];
+    if(rMoves) rMoves.forEach(function(m){ returning.push(m); });
+  }
+  var allMoves = expanded.concat(returning);
+  allMoves.forEach(function(mv) { applyMove(st, mv); });
+
+  var solved = CUBE_STICKERS;
+
+  var edgeKeys = Object.keys(solved).filter(function(k){ return k.length===2; });
+  var cornerKeys = Object.keys(solved).filter(function(k){ return k.length===3; });
+  var edgeGroups = {}, cornerGroups = {};
+  for(var i=0;i<edgeKeys.length;i+=2)   edgeGroups[edgeKeys[i]]   = [edgeKeys[i],edgeKeys[i+1]];
+  for(var i=0;i<cornerKeys.length;i+=3) cornerGroups[cornerKeys[i]] = [cornerKeys[i],cornerKeys[i+1],cornerKeys[i+2]];
+
+  var solvedEdges=0, solvedCorners=0, solvedGroups=[];
+  Object.keys(edgeGroups).forEach(function(g) {
+    var ok = edgeGroups[g].every(function(t){ return st[t]===solved[t] && !solved[t].startsWith("buffer"); });
+    if(ok){ solvedEdges++; solvedGroups.push(g); }
+  });
+  Object.keys(cornerGroups).forEach(function(g) {
+    var ok = cornerGroups[g].every(function(t){ return st[t]===solved[t] && !solved[t].startsWith("buffer"); });
+    if(ok){ solvedCorners++; solvedGroups.push(g); }
+  });
+
+  var flips=0, twists=0, flippedGroups=[];
+  var allGroups = Object.assign({}, edgeGroups, cornerGroups);
+  Object.keys(allGroups).forEach(function(g) {
+    if(g==="UF"||g==="UFR") return;
+    var stickers2 = allGroups[g];
+    var solvedVals = stickers2.map(function(t){ return solved[t]; });
+    var scramVals  = stickers2.map(function(t){ return st[t]; });
+    var sortedEq = JSON.stringify(solvedVals.slice().sort()) === JSON.stringify(scramVals.slice().sort());
+    var directEq = JSON.stringify(solvedVals) === JSON.stringify(scramVals);
+    if(sortedEq && !directEq) {
+      flippedGroups.push(g);
+      if(stickers2.length===2) flips++;
+      else twists++;
+    }
+  });
+
+  var edgeMemo=[], cornerMemo=[];
+  var memoedGroups = [];
+
+  function findFreeTarget(type) {
+    var flippedPerms = [];
+    flippedGroups.forEach(function(fg) {
+      for(var a=0;a<fg.length;a++) for(var b=0;b<fg.length;b++) if(a!==b)
+        for(var c=0;c<fg.length;c++) if(c!==a&&c!==b) flippedPerms.push(fg[a]+fg[b]+(fg.length>2?fg[c]:""));
+      flippedPerms.push(fg[1]+fg[0]+(fg.length>2?fg[2]:""));
+    });
+    var groups = type==="c"?cornerGroups:edgeGroups;
+    for(var g in groups) {
+      if(g==="UF"||g==="UFR") continue;
+      if(memoedGroups.indexOf(g)===-1 && solvedGroups.indexOf(g)===-1 && flippedPerms.indexOf(g)===-1)
+        return g;
+    }
+    return null;
+  }
+
+  function returnGroup(target) {
+    var groups = target.length===2?edgeGroups:cornerGroups;
+    for(var g in groups) if(groups[g].indexOf(target)!==-1) return g;
+    return null;
+  }
+
+  function doMemoLoop(startTarget, isCorner) {
+    var cycle = [startTarget];
+    var memo = [];
+    var breaks = 0;
+    var placeOfBreak = "";
+    var type = isCorner?"c":"e";
+
+    for(var ci=0;ci<cycle.length;ci++) {
+      var cur = cycle[ci];
+      var val = st[cur];
+      var grp = returnGroup(cur);
+      if(!grp) continue;
+
+      if(val.startsWith("buffer") || grp === placeOfBreak) {
+        var ft = findFreeTarget(type);
+        if(!ft) break;
+        breaks++;
+        memo.push(solved[ft]);
+        placeOfBreak = ft;
+        memo.push(st[ft]);
+        var nxt = findNextTarget(st[ft], isCorner);
+        if(nxt) cycle.push(nxt);
+        memoedGroups.push(ft);
+      } else {
+        memo.push(val);
+        var nxt = findNextTarget(val, isCorner);
+        if(nxt) cycle.push(nxt);
+        memoedGroups.push(grp);
+      }
+    }
+    return {memo:memo, breaks:breaks};
+  }
+
+  function findNextTarget(letter, isCorner) {
+    var len = isCorner?3:2;
+    for(var t in st) {
+      if(t.length!==len) continue;
+      if(solved[t]===letter) return t;
+    }
+    return null;
+  }
+
+  var cResult = doMemoLoop("UFR", true);
+  cornerMemo = cResult.memo;
+  var cornerBreaks = cResult.breaks;
+  var parity = cornerMemo.length%2===1 ? 1 : 0;
+
+  var eResult = doMemoLoop("UF", false);
+  edgeMemo = eResult.memo;
+  var edgeBreaks = eResult.breaks;
+
+  var edgeTargets   = edgeMemo.length;
+  var cornerTargets = cornerMemo.length;
+  var algs = flips + twists + Math.round(edgeTargets/2) + Math.ceil(cornerTargets/2) + parity;
+
+  return {
+    algs:         algs,
+    edgeTargets:  edgeTargets,
+    cornerTargets:cornerTargets,
+    solvedEdges:  solvedEdges,
+    solvedCorners:solvedCorners,
+    flips:        flips,
+    twists:       twists,
+    edgeBreaks:   edgeBreaks,
+    cornerBreaks: cornerBreaks,
+    parity:       parity
+  };
+}
+
+// ── SCRAMBLE DIFFICULTY → TIME / DNF DELTA ───────────────────
+// Based on regression on 4549 personal solves.
+// Option A: delta = model(scramble) - model(avg_scramble)
+// CPU time = bot_mean_from_KDE + delta
+// CPU DNF  = sigmoid( logit(bot_base_acc/100) + dnf_delta )
+
+var FEATURE_MEANS = {
+  algs:10.4693, edgeTargets:11.3766, cornerTargets:6.9747,
+  solvedEdges:0.4452, solvedCorners:0.2820, flips:0.4625,
+  twists:0.5821, edgeBreaks:1.2407, cornerBreaks:0.8389
+};
+
+var TIME_COEFFS = {
+  algs:1.1441, edgeTargets:-0.6466, cornerTargets:1.8016,
+  solvedEdges:-0.7129, solvedCorners:1.6101, flips:-0.7748,
+  twists:1.7887, edgeBreaks:0.5888, cornerBreaks:-1.9317
+};
+
+var DNF_COEFFS = {
+  algs:0.1531, edgeTargets:-0.0817, cornerTargets:-0.0658,
+  solvedEdges:-0.2116, solvedCorners:-0.1941, flips:-0.0022,
+  twists:0.1242, edgeBreaks:0.2724, cornerBreaks:0.2376
+};
+
+var TIME_RESIDUAL_STD = 1.2892;
+
+function scrambleDelta(analysis) {
+  if(!analysis) return {timeDelta:0, dnfDelta:0};
+  var keys = ['algs','edgeTargets','cornerTargets','solvedEdges','solvedCorners','flips','twists','edgeBreaks','cornerBreaks'];
+  var timeDelta = 0, dnfDelta = 0;
+  keys.forEach(function(k) {
+    var diff = analysis[k] - FEATURE_MEANS[k];
+    timeDelta += TIME_COEFFS[k] * diff;
+    dnfDelta  += DNF_COEFFS[k]  * diff;
+  });
+  return {timeDelta:timeDelta, dnfDelta:dnfDelta};
+}
+
+function logit(p) { return Math.log(Math.max(0.001, p) / Math.max(0.001, 1-p)); }
+function sigmoid(x) { return 1 / (1 + Math.exp(-Math.max(-20, Math.min(20, x)))); }
+
+// ── UPDATED simulateAttempt ───────────────────────────────────
+function simulateAttemptWithScramble(player, scramble) {
+  var analysis  = scrambleAnalysis(scramble);
+  var delta     = scrambleDelta(analysis);
+
+  // DNF check: shift player's base rate by scramble difficulty
+  var baseDNF   = 1 - (player.acc / 100);
+  var adjDNF    = sigmoid(logit(baseDNF) + delta.dnfDelta);
+  if(Math.random() < adjDNF) return {time:null, dnf:true};
+
+  // Time: KDE resample + scramble time delta
+  var base = kdeResample1(player);
+  if(base===null||base<=0) return {time:null, dnf:true};
+
+  // Add scramble delta + small Gaussian noise
+  var u1=Math.random()+1e-10, u2=Math.random();
+  var z=Math.sqrt(-2*Math.log(u1))*Math.cos(2*Math.PI*u2);
+  var t = base + delta.timeDelta + TIME_RESIDUAL_STD * 0.3 * z; // 0.3 = scale noise down (KDE already has variance)
+  return {time: +Math.max(5, t).toFixed(2), dnf: false};
+}
+
+
+var WIDE_FACES = ['U','F','R'];
+var WIDE_OPP = {U:'D', F:'B', R:'L'}; // opposite of wide face (also counts as "same family")
+
 function generateScramble(){
   // Random total length 18-23, of which 0-2 are wide moves appended at the END
   var totalLen = 18 + Math.floor(Math.random() * 6);      // 18..23
@@ -247,11 +534,11 @@ function generateScramble(){
   var moves = [];
   var lf = null, slf = null;
   for(var i = 0; i < normalCount; i++){
-    var f, attempts = 0;
+    var f, att = 0;
     do {
       f = FACES[Math.floor(Math.random() * 6)];
-      attempts++;
-    } while(attempts < 20 && (
+      att++;
+    } while(att < 20 && (
       f === lf ||
       (slf && OPP_[f] === lf && OPP_[slf] === f) ||
       (slf && f === slf && OPP_[f] === lf)
@@ -261,9 +548,20 @@ function generateScramble(){
   }
 
   // Append wide moves at the end
+  // Rule: wide move face family (U/F/R or their opposites) can't repeat adjacently
+  var lastWideFace = null;
   for(var w = 0; w < wideCount; w++){
-    var wFace = FACES[Math.floor(Math.random() * 6)];
+    var wFace, wAtt = 0;
+    do {
+      wFace = WIDE_FACES[Math.floor(Math.random() * 3)];
+      wAtt++;
+    } while(wAtt < 20 && lastWideFace !== null && (
+      wFace === lastWideFace ||
+      WIDE_OPP[wFace] === lastWideFace ||
+      WIDE_OPP[lastWideFace] === wFace
+    ));
     moves.push(wFace + 'w' + MODS[Math.floor(Math.random() * 3)]);
+    lastWideFace = wFace;
   }
 
   return moves.join(' ');
@@ -305,8 +603,8 @@ function simulateRound(player){
   if(!player) return{attempts:[],best:null,dnf:true};
   const attempts=[];
   for(let i=0;i<5;i++){
-    const sc=generateScramble(20);
-    const r=simulateAttempt(player);
+    const sc=generateScramble();
+    const r=simulateAttemptWithScramble(player, sc);
     attempts.push({scramble:sc,...r});
   }
   const solved=attempts.filter(a=>!a.dnf&&a.time);
@@ -473,7 +771,7 @@ function startRoundGeneric(rNum, players, advCount, targetId){
 
   // For each of 5 attempts, shuffle cpuIds and pick a random split point K
   // K CPUs go before human, rest go after
-  const scrambles = Array.from({length:5}, () => generateScramble(20));
+  const scrambles = Array.from({length:5}, () => generateScramble());
   const attemptOrders = Array.from({length:5}, function(_, attIdx) {
     var shuffled = cpuIds.slice().sort(function(){ return Math.random()-0.5; });
     var k;
@@ -919,7 +1217,7 @@ function renderMyReport(){
       var timeColor = att.dnf ? 'var(--ng)' : isBest ? 'var(--ok)' : 'var(--text)';
       html += '<tr style="border-bottom:1px solid var(--border);'+(isBest?'background:var(--okd)':'')+'">'
         + '<td style="padding:6px 8px;font-family:Space Mono,monospace;font-size:11px;color:var(--text3)">'+(ai+1)+'</td>'
-        + '<td style="padding:6px 8px;font-family:Space Mono,monospace;font-weight:'+(isBest?'700':'400')+';color:'+timeColor+'">'+timeStr+(isBest?' ★':'')+'</td>'
+        + '<td style="padding:6px 8px;font-family:Space Mono,monospace;font-weight:'+(isBest?'700':'400')+';color:'+timeColor+'">'+timeStr+'</td>'
         + '<td style="padding:6px 8px;font-family:Space Mono,monospace;font-size:10px;color:var(--text2);letter-spacing:.5px">'+(att.scramble||'—')+'</td>'
         + '</tr>';
     });
