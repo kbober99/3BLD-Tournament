@@ -500,36 +500,70 @@ function logit(p) { return Math.log(Math.max(0.001, p) / Math.max(0.001, 1-p)); 
 function sigmoid(x) { return 1 / (1 + Math.exp(-Math.max(-20, Math.min(20, x)))); }
 
 // ── UPDATED simulateAttempt ───────────────────────────────────
-// My mean success time (used to calibrate regression model)
-var MY_MEAN_TIME = 17.86;
+// ── SCRAMBLE TIME PREDICTION ─────────────────────────────────
+// Regression trained on Krzysztof Bober's 1620 successful solves.
+// Intercept calibrated so that predicted(avg_scramble) == my_mean (17.8554s).
+// Usage: predictMyTime(analysis) -> predicted time for me on this scramble.
+// Then scale proportionally to each CPU player's mean.
+
+var BOBER_MEAN = 17.8554; // Bober's mean successful solve time from xlsx (regression baseline)
+
+var PRED_INTERCEPT = 1.018870;
+var PRED_COEFFS = {
+  algs:          1.144145,
+  edgeTargets:  -0.646568,
+  cornerTargets: 1.801602,
+  solvedEdges:  -0.712919,
+  solvedCorners: 1.610098,
+  flips:        -0.774807,
+  twists:        1.788706,
+  edgeBreaks:    0.588811,
+  cornerBreaks: -1.931685
+};
+
+function predictBoberTime(analysis) {
+  if(!analysis) return BOBER_MEAN;
+  return PRED_INTERCEPT
+    + PRED_COEFFS.algs          * analysis.algs
+    + PRED_COEFFS.edgeTargets   * analysis.edgeTargets
+    + PRED_COEFFS.cornerTargets * analysis.cornerTargets
+    + PRED_COEFFS.solvedEdges   * analysis.solvedEdges
+    + PRED_COEFFS.solvedCorners * analysis.solvedCorners
+    + PRED_COEFFS.flips         * analysis.flips
+    + PRED_COEFFS.twists        * analysis.twists
+    + PRED_COEFFS.edgeBreaks    * analysis.edgeBreaks
+    + PRED_COEFFS.cornerBreaks  * analysis.cornerBreaks;
+}
 
 function simulateAttemptWithScramble(player, scramble) {
-  var analysis  = scrambleAnalysis(scramble);
-  var delta     = scrambleDelta(analysis);
+  var analysis   = scrambleAnalysis(scramble);
 
-  // Scale timeDelta proportionally to player speed vs my speed
-  // A player 2x faster than me should also get 2x smaller absolute delta
-  var playerMean = player.mean || MY_MEAN_TIME;
-  var speedRatio = playerMean / MY_MEAN_TIME;
-  // Clamp timeDelta to ±2 residual std before scaling (prevents extreme outliers)
-  var clampedDelta = Math.max(-2*1.2892, Math.min(2*1.2892, delta.timeDelta));
-  var scaledTimeDelta = clampedDelta * speedRatio;
-
-  // DNF: the logit shift is less extreme for top players (they handle hard scrambles better)
-  // Scale dnfDelta by sqrt(speedRatio) as a moderate adjustment
+  // DNF: logit shift scaled by sqrt(player_speed_ratio)
+  var delta      = scrambleDelta(analysis);
+  var playerMean = player.mean || BOBER_MEAN;
+  var speedRatio = playerMean / BOBER_MEAN; // ratio vs Bober's PLAYERS_DB mean
   var scaledDnfDelta = delta.dnfDelta * Math.sqrt(speedRatio);
-
-  // DNF check
   var baseDNF = 1 - (player.acc / 100);
   var adjDNF  = sigmoid(logit(baseDNF) + scaledDnfDelta);
   if(Math.random() < adjDNF) return {time:null, dnf:true};
 
-  // Time: KDE resample + scaled scramble delta
-  var base = kdeResample1(player);
-  if(base===null||base<=0) return {time:null, dnf:true};
+  // Time: predict Bober's time on this scramble -> compute % deviation from Bober's mean
+  // -> apply same % to this player's mean -> add ±5% noise
+  var boberPred  = predictBoberTime(analysis);
+  var pct        = boberPred / BOBER_MEAN;            // e.g. 0.90 = easy, 1.10 = hard
 
-  var t = base + scaledTimeDelta;
-  return {time: +Math.max(5, t).toFixed(2), dnf: false};
+  // ±5% uniform noise
+  var noise      = 1 + (Math.random() * 0.10 - 0.05);
+
+  var targetTime = playerMean * pct * noise;
+
+  // Clamp to player's actual dataset range
+  var ds = player.dataset;
+  if(!ds || ds.length === 0) return {time: +Math.max(5, targetTime).toFixed(2), dnf: false};
+  var lo = ds[0], hi = ds[ds.length - 1];
+  targetTime = Math.max(lo * 0.95, Math.min(hi * 1.05, targetTime));
+
+  return {time: +Math.max(5, targetTime).toFixed(2), dnf: false};
 }
 
 
@@ -582,24 +616,28 @@ function generateScramble(){
 // ── KDE RESAMPLE(1) ──────────────────────────────────────────
 // Smoothed KDE: narrow bandwidth, clamped to actual [min, max] of dataset.
 // This prevents out-of-range samples for bimodal/high-variance players.
-function kdeResample1(player){
-  const ds = player.dataset;
+function kdeResample1(player, topFraction){
+  const ds = player.dataset; // pre-sorted ascending (best times first)
   if(!ds||ds.length===0) return null;
+  const frac = topFraction || 1.0;
   const n  = ds.length;
-  const lo = ds[0];           // dataset is pre-sorted ascending
-  const hi = ds[n-1];
-  const mean = ds.reduce((a,b)=>a+b,0)/n;
-  const std  = Math.sqrt(ds.reduce((s,x)=>s+(x-mean)**2,0)/n);
-  const bw   = Math.max(0.5, Math.min(3.0, 0.1 * std)); // narrow, min 0.5s max 3s
-  // Rejection sampling: clamp to actual data range
+  // Use only the bottom (best) fraction of the dataset if requested
+  const usableN = Math.max(1, Math.round(n * frac));
+  const subset  = ds.slice(0, usableN); // best usableN times
+  const lo = subset[0];
+  const hi = subset[usableN-1];
+  const mean = subset.reduce((a,b)=>a+b,0)/usableN;
+  const std  = Math.sqrt(subset.reduce((s,x)=>s+(x-mean)**2,0)/usableN);
+  const bw   = Math.max(0.5, Math.min(3.0, 0.1 * std));
+  // Rejection sampling: clamp to subset range
   for(let i=0;i<30;i++){
-    const base = ds[Math.floor(Math.random()*n)];
+    const base = subset[Math.floor(Math.random()*usableN)];
     const u1=Math.random()+1e-10, u2=Math.random();
     const z=Math.sqrt(-2*Math.log(u1))*Math.cos(2*Math.PI*u2);
     const t = base + bw*z;
     if(t>=lo && t<=hi) return t;
   }
-  return ds[Math.floor(Math.random()*n)]; // fallback: pure sample
+  return subset[Math.floor(Math.random()*usableN)];
 }
 
 // Simulate one attempt: DNF check + KDE resample
@@ -611,11 +649,11 @@ function simulateAttempt(player){
 }
 
 // Best of 5 attempts → ranking result
-function simulateRound(player){
+function simulateRound(player, scrambles){
   if(!player) return{attempts:[],best:null,dnf:true};
   const attempts=[];
   for(let i=0;i<5;i++){
-    const sc=generateScramble();
+    const sc = scrambles ? scrambles[i] : generateScramble();
     const r=simulateAttemptWithScramble(player, sc);
     attempts.push({scramble:sc,...r});
   }
@@ -769,13 +807,16 @@ function startRoundGeneric(rNum, players, advCount, targetId){
     `${players.length} zawodników · 5 ułożeń · ${advCount>0 ? 'awansuje '+advCount+' najlepszych' : 'klasyfikacja końcowa'}`;
 
   // Pre-simulate ALL 5 attempts for every CPU player
+  // Generate round scrambles FIRST — same for all players (human + CPU)
+  const scrambles = Array.from({length:5}, () => generateScramble());
+
   const cpuAttempts = {};
   const cpuIds = [];
   players.forEach(id => {
     if(id === 'you') return;
     const p = PLAYERS_DB[id];
     if(!p){ console.warn('[R'+rNum+'] Missing player:', id); return; }
-    const result = simulateRound(p);
+    const result = simulateRound(p, scrambles);
     cpuAttempts[id] = { attempts: result.attempts, revealed: 0 };
     cpuIds.push(id);
   });
@@ -783,7 +824,6 @@ function startRoundGeneric(rNum, players, advCount, targetId){
 
   // For each of 5 attempts, shuffle cpuIds and pick a random split point K
   // K CPUs go before human, rest go after
-  const scrambles = Array.from({length:5}, () => generateScramble());
   const attemptOrders = Array.from({length:5}, function(_, attIdx) {
     var shuffled = cpuIds.slice().sort(function(){ return Math.random()-0.5; });
     var k;
