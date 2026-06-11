@@ -984,11 +984,10 @@ function submitHumanCur(){
   renderLiveTable();
 
   var order = cur.attemptOrders[att];
-  // After-sequence: spread over 50-70s so CPU results trickle in naturally
-  var afterTotal = 50000 + Math.floor(Math.random() * 20000);
+  // After-sequence: spread over exactly 10 seconds
   var afterDelay = order.after.length > 1
-    ? Math.floor(afterTotal / order.after.length)
-    : afterTotal; // if only 1 or 0 CPUs left, pause for full duration anyway
+    ? Math.floor(10000 / order.after.length)
+    : 10000;
   revealSequentially(order.after, att, 0, function(){
     cur.animating = false;
     var nextAtt = cur.humanAttempts.length;
